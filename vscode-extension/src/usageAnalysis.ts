@@ -42,6 +42,145 @@ import { detectJetBrainsModeFromContent, type JetBrainsMode } from './jetbrains'
 import type { IEcosystemAdapter } from './ecosystemAdapter';
 import { isAnalyzable } from './ecosystemAdapter';
 
+
+// ---------------------------------------------------------------------------
+// Internal types for parsed session log JSON structures
+// ---------------------------------------------------------------------------
+
+/** Reference object inside a contentReferences item */
+interface ContentRefObject {
+fsPath?: string;
+path?: string;
+name?: string;
+}
+
+/** A single item from a session contentReferences array */
+interface ContentRefItemRaw {
+kind?: string;
+reference?: ContentRefObject;
+inlineReference?: ContentRefObject;
+}
+
+/** Variable container from a session request variableData field */
+interface VariableDataRaw {
+variables?: Array<{
+kind?: string;
+name?: string;
+value?: { fsPath?: string; path?: string; external?: string };
+}>;
+}
+
+/** A request entry in a session file */
+interface SessionRequestRaw {
+requestId?: string;
+timestamp?: number;
+timeSpentWaiting?: number;
+agent?: { id?: string };
+message?: {
+text?: string;
+parts?: Array<{ text?: string }>;
+};
+contentReferences?: unknown[];
+variableData?: unknown;
+response?: unknown[];
+result?: {
+timings?: { firstProgress?: number; totalElapsed?: number };
+usage?: { promptTokens?: number; completionTokens?: number };
+promptTokens?: number;
+outputTokens?: number;
+details?: string;
+metadata?: {
+promptTokens?: number;
+outputTokens?: number;
+modelId?: string;
+};
+};
+modelId?: string;
+}
+
+/** A parsed regular JSON session content */
+interface ParsedSessionJson {
+requests?: unknown[];
+mode?: { id?: string };
+creationDate?: number;
+lastMessageDate?: number;
+inputState?: {
+mode?: string;
+selectedModel?: { metadata?: { id?: string }; identifier?: string };
+selections?: Array<{
+startLineNumber?: number;
+endLineNumber?: number;
+startColumn?: number;
+endColumn?: number;
+}>;
+};
+selectedModel?: { metadata?: { id?: string }; identifier?: string };
+}
+
+/** A JSONL event (delta-based or CLI format) */
+interface JsonlEventRaw {
+kind?: number;
+k?: string[];
+v?: unknown;
+type?: string;
+data?: {
+selectedModel?: string;
+newModel?: string;
+reasoningEffort?: string;
+content?: string;
+outputTokens?: number;
+result?: {
+content?: unknown;
+detailedContent?: unknown;
+};
+modelMetrics?: Record<string, {
+usage?: {
+inputTokens?: number;
+outputTokens?: number;
+cacheReadTokens?: number;
+cacheWriteTokens?: number;
+};
+}>;
+mcpServer?: string;
+toolName?: string;
+};
+model?: string;
+toolName?: string;
+}
+
+/** Reconstructed delta session state (from applyDelta over JSONL lines) */
+interface DeltaSessionState {
+	requests?: unknown[];
+	creationDate?: number;
+	lastMessageDate?: number;
+	inputState?: {
+		mode?: string;
+		selectedModel?: { identifier?: string; metadata?: { id?: string } };
+		selections?: Array<{
+			startLineNumber?: number;
+			endLineNumber?: number;
+			startColumn?: number;
+			endColumn?: number;
+		}>;
+	};
+	selectedModel?: { identifier?: string; metadata?: { id?: string } };
+	[key: string]: unknown;
+}
+
+/** A response item in a session request */
+interface ResponseItemRaw {
+	kind?: string;
+	uri?: { path?: string };
+	isEdit?: boolean;
+	toolId?: string;
+	toolName?: string;
+	invocationMessage?: { toolName?: string };
+	toolSpecificData?: { kind?: string };
+	value?: string;
+	didStartServerIds?: string[];
+	inlineReference?: ContentRefObject;
+}
+
 export interface UsageAnalysisDeps {
 	warn: (msg: string) => void;
 	ecosystems: IEcosystemAdapter[];
@@ -50,6 +189,314 @@ export interface UsageAnalysisDeps {
 	toolNameMap: { [key: string]: string };
 }
 
+
+/**
+ * Increment the appropriate mode counter based on modeType string.
+ */
+function incrementModeUsage(modeType: string, modeUsage: ModeUsage): void {
+	if (modeType === 'agent') {
+		modeUsage.agent++;
+	} else if (modeType === 'edit') {
+		modeUsage.edit++;
+	} else if (modeType === 'plan') {
+		modeUsage.plan++;
+	} else if (modeType === 'customAgent') {
+		modeUsage.customAgent++;
+	} else {
+		modeUsage.ask++;
+	}
+}
+
+/**
+ * Record a tool invocation, routing to MCP counters or regular tool-call counters.
+ */
+function recordToolOrMcpInvocation(
+	toolName: string,
+	analysis: SessionUsageAnalysis,
+	toolNameMap: { [key: string]: string }
+): void {
+	if (isMcpTool(toolName)) {
+		// Count as MCP tool
+		analysis.mcpTools.total++;
+		const serverName = extractMcpServerName(toolName, toolNameMap);
+		analysis.mcpTools.byServer[serverName] = (analysis.mcpTools.byServer[serverName] || 0) + 1;
+		const normalizedTool = normalizeMcpToolName(toolName);
+		analysis.mcpTools.byTool[normalizedTool] = (analysis.mcpTools.byTool[normalizedTool] || 0) + 1;
+	} else {
+		// Count as regular tool call
+		analysis.toolCalls.total++;
+		analysis.toolCalls.byTool[toolName] = (analysis.toolCalls.byTool[toolName] || 0) + 1;
+	}
+}
+
+/**
+ * Process a list of session requests, accumulating enhanced metrics in-place.
+ * Mutates editedFiles, timestamps, timingsData, waitTimes and agentCounts.
+ * Returns the total applies and total code blocks counted.
+ */
+function processRequestsForEnhancedMetrics(
+	requests: SessionRequestRaw[],
+	agentCounts: AgentTypeUsage,
+	editedFiles: Set<string>,
+	timestamps: number[],
+	timingsData: { firstProgress?: number; totalElapsed?: number }[],
+	waitTimes: number[]
+): { totalApplies: number; totalCodeBlocks: number } {
+	let totalApplies = 0;
+	let totalCodeBlocks = 0;
+	for (const requestRaw of requests) {
+		if (!requestRaw) { continue; }
+		const request = requestRaw;
+
+		// Track timestamps
+		if (request.timestamp !== undefined) { timestamps.push(request.timestamp); }
+
+		// Track timings
+		if (request.result?.timings) {
+			timingsData.push(request.result.timings);
+		}
+
+		// Track wait times
+		if (request.timeSpentWaiting !== undefined) {
+			waitTimes.push(request.timeSpentWaiting);
+		}
+
+		// Track agent types
+		if (request.agent?.id) {
+			const agentId = request.agent.id;
+			if (agentId.includes('edit')) {
+				agentCounts.editsAgent++;
+			} else if (agentId.includes('default')) {
+				agentCounts.defaultAgent++;
+			} else if (agentId.includes('workspace')) {
+				agentCounts.workspaceAgent++;
+			} else {
+				agentCounts.other++;
+			}
+		}
+
+		// Track edit scope and apply usage
+		if (request.response && Array.isArray(request.response)) {
+			for (const respRaw of request.response as ResponseItemRaw[]) {
+				if (!respRaw) { continue; }
+				const resp = respRaw;
+				if (resp.kind === 'textEditGroup' && resp.uri) {
+					const filePath = resp.uri.path || JSON.stringify(resp.uri);
+					editedFiles.add(filePath);
+				}
+				if (resp.kind === 'codeblockUri') {
+					totalCodeBlocks++;
+					if (resp.isEdit === true) {
+						totalApplies++;
+					}
+				}
+			}
+		}
+	}
+	return { totalApplies, totalCodeBlocks };
+}
+
+/**
+ * Process a fully-reconstructed delta session state to populate usage analysis.
+ * Handles mode detection, context references, tool invocations, model switching,
+ * thinking effort extraction, and conversation pattern derivation.
+ */
+function processDeltaSessionAnalysis(
+	deps: Pick<UsageAnalysisDeps, 'toolNameMap' | 'modelPricing'>,
+	sessionState: DeltaSessionState,
+	lines: string[],
+	analysis: SessionUsageAnalysis
+): void {
+
+	// Extract session mode from reconstructed state
+	const sessionModeType = sessionState.inputState?.mode 
+		? getModeType(sessionState.inputState.mode)
+		: 'ask';
+
+	// Detect implicit selections
+	if (sessionState.inputState?.selections && Array.isArray(sessionState.inputState.selections)) {
+		for (const sel of sessionState.inputState.selections) {
+			if (sel && (sel.startLineNumber !== sel.endLineNumber || sel.startColumn !== sel.endColumn)) {
+				analysis.contextReferences.implicitSelection++;
+				break;
+			}
+		}
+	}
+
+	// Process reconstructed requests array
+	const requests = (sessionState.requests ?? []) as SessionRequestRaw[];
+	for (const request of requests) {
+		if (!request || !request.requestId) { continue; }
+
+		// Count by mode type
+		incrementModeUsage(sessionModeType, analysis.modeUsage);
+
+		// Check for agent in request
+		if (request.agent?.id) {
+			const toolName = request.agent.id;
+			analysis.toolCalls.total++;
+			analysis.toolCalls.byTool[toolName] = (analysis.toolCalls.byTool[toolName] || 0) + 1;
+		}
+
+		// Analyze all context references from this request
+		analyzeRequestContext(request, analysis.contextReferences);
+
+		// Extract tool calls and MCP tools from request.response array
+		if (request.response && Array.isArray(request.response)) {
+			for (const responseItemRaw of request.response as ResponseItemRaw[]) {
+				if (!responseItemRaw) { continue; }
+				const responseItem = responseItemRaw;
+				if (responseItem.kind === 'toolInvocationSerialized' || responseItem.kind === 'prepareToolInvocation') {
+					const toolName = responseItem.toolId || responseItem.toolName || responseItem.invocationMessage?.toolName || responseItem.toolSpecificData?.kind || 'unknown';
+
+					// Route to MCP or regular tool counters
+					recordToolOrMcpInvocation(toolName, analysis, deps.toolNameMap);
+				}
+			}
+		}
+	}
+
+	// Compute model switching inline from the already-reconstructed state
+	// to avoid re-reading and re-parsing the file in calculateModelSwitching.
+	{
+		// Derive the session-level default model from reconstructed state,
+		// mirroring the selectedModel extraction used in the line-by-line path.
+		const sessionDefaultModel = (
+			sessionState.selectedModel?.identifier ||
+			sessionState.selectedModel?.metadata?.id ||
+			sessionState.inputState?.selectedModel?.metadata?.id ||
+			'gpt-4o'
+		).replace(/^copilot\//, '');
+
+		const models: string[] = [];
+		for (const req of requests) {
+			if (!req || !req.requestId) { continue; }
+			let reqModel = sessionDefaultModel;
+			if (req.modelId) {
+				reqModel = req.modelId.replace(/^copilot\//, '');
+			} else if (req.result?.metadata?.modelId) {
+				reqModel = req.result.metadata.modelId.replace(/^copilot\//, '');
+			} else if (req.result?.details) {
+				reqModel = getModelFromRequest(req, deps.modelPricing);
+			}
+			models.push(reqModel);
+		}
+		const uniqueModels = [...new Set(models)];
+		analysis.modelSwitching.uniqueModels = uniqueModels;
+		analysis.modelSwitching.modelCount = uniqueModels.length;
+		analysis.modelSwitching.totalRequests = models.length;
+		let switchCount = 0;
+		for (let mi = 1; mi < models.length; mi++) {
+			if (models[mi] !== models[mi - 1]) { switchCount++; }
+		}
+		analysis.modelSwitching.switchCount = switchCount;
+		applyModelTierClassification(deps.modelPricing, uniqueModels, models, analysis);
+	}
+
+	// Extract thinking effort (reasoning effort) from delta lines
+	{
+		const { effortByRequestId, defaultEffort, switchCount: effortSwitchCount } = buildReasoningEffortTimeline(lines);
+		if (defaultEffort !== null || effortByRequestId.size > 0) {
+			const byEffort: { [effort: string]: number } = {};
+			for (const [, effort] of effortByRequestId) {
+				byEffort[effort] = (byEffort[effort] || 0) + 1;
+			}
+			// If we have a defaultEffort but no per-request data, record it as the session default
+			if (effortByRequestId.size === 0 && defaultEffort !== null) {
+				byEffort[defaultEffort] = requests.length;
+			}
+			analysis.thinkingEffort = { byEffort, switchCount: effortSwitchCount, defaultEffort };
+		}
+	}
+
+
+	// Derive conversation patterns from mode usage
+	deriveConversationPatterns(analysis);
+}
+
+/**
+ * Process requests in a regular JSON session file.
+ * Populates mode usage, context references, and tool/MCP invocations.
+ */
+function processJsonSessionRequests(
+	deps: Pick<UsageAnalysisDeps, 'toolNameMap'>,
+	sessionContent: ParsedSessionJson,
+	analysis: SessionUsageAnalysis
+): void {
+	// Detect session mode and count interactions per request
+	if (sessionContent.requests && Array.isArray(sessionContent.requests)) {
+		for (const requestRaw of sessionContent.requests) {
+			const request = requestRaw as SessionRequestRaw;
+			// Determine mode for each individual request
+			let requestMode = 'ask'; // default
+
+			// Check request-level agent ID first (more specific)
+			if (request.agent?.id) {
+				const agentId = request.agent.id.toLowerCase();
+				if (agentId.includes('edit')) {
+					requestMode = 'edit';
+				} else if (agentId.includes('agent')) {
+					requestMode = 'agent';
+				}
+			}
+			// Fall back to session-level mode if no request-specific agent
+			else if (sessionContent.mode?.id) {
+				const modeId = sessionContent.mode.id.toLowerCase();
+				if (modeId.includes('agent')) {
+					requestMode = 'agent';
+				} else if (modeId.includes('edit')) {
+					requestMode = 'edit';
+				}
+			}
+
+			// Count this request in the appropriate mode
+			if (requestMode === 'agent') {
+				analysis.modeUsage.agent++;
+			} else if (requestMode === 'edit') {
+				analysis.modeUsage.edit++;
+			} else {
+				analysis.modeUsage.ask++;
+			}
+
+			// Analyze all context references from this request
+			analyzeRequestContext(request, analysis.contextReferences);
+
+			// Analyze response for tool calls and MCP tools
+			if (request.response && Array.isArray(request.response)) {
+				for (const responseItemRaw of request.response as ResponseItemRaw[]) {
+					if (!responseItemRaw) { continue; }
+					const responseItem = responseItemRaw;
+					// Detect tool invocations
+					if (responseItem.kind === 'toolInvocationSerialized' ||
+						responseItem.kind === 'prepareToolInvocation') {
+						const toolName = responseItem.toolId ||
+							responseItem.toolName ||
+							responseItem.invocationMessage?.toolName ||
+							'unknown';
+
+						// Route to MCP or regular tool counters
+						recordToolOrMcpInvocation(toolName, analysis, deps.toolNameMap);
+					}
+
+					// Detect MCP servers starting
+					if (responseItem.kind === 'mcpServersStarting' && responseItem.didStartServerIds) {
+						for (const serverId of responseItem.didStartServerIds) {
+							analysis.mcpTools.total++;
+							analysis.mcpTools.byServer[serverId] = (analysis.mcpTools.byServer[serverId] || 0) + 1;
+						}
+					}
+
+					// Detect inline references in response items
+					if (responseItem.kind === 'inlineReference' && responseItem.inlineReference) {
+						// Treat response inlineReferences as contentReferences
+						analyzeContentReferences([responseItem], analysis.contextReferences);
+					}
+				}
+			}
+		}
+	}
+
+}
 
 /**
  * Merge usage analysis data into period stats
@@ -351,15 +798,16 @@ export function analyzeContextReferences(text: string, refs: ContextReferenceUsa
  * Looks for kind: "reference" entries and tracks by kind, path patterns.
  * Also increments specific category counters like refs.file when appropriate.
  */
-export function analyzeContentReferences(contentReferences: any[], refs: ContextReferenceUsage): void {
+export function analyzeContentReferences(contentReferences: unknown[], refs: ContextReferenceUsage): void {
 	if (!Array.isArray(contentReferences)) {
 		return;
 	}
 
-	for (const contentRef of contentReferences) {
-		if (!contentRef || typeof contentRef !== 'object') {
+	for (const item of contentReferences) {
+		if (!item || typeof item !== 'object') {
 			continue;
 		}
+		const contentRef = item as ContentRefItemRaw;
 
 		// Track by kind
 		const kind = contentRef.kind;
@@ -433,12 +881,16 @@ export function analyzeContentReferences(contentReferences: any[], refs: Context
  * Analyze variableData to track prompt file attachments and other variable-based context.
  * This captures automatic attachments like copilot-instructions.md via variable system.
  */
-export function analyzeVariableData(variableData: any, refs: ContextReferenceUsage): void {
-	if (!variableData || !Array.isArray(variableData.variables)) {
+export function analyzeVariableData(variableData: unknown, refs: ContextReferenceUsage): void {
+	if (!variableData || typeof variableData !== 'object') {
+		return;
+	}
+	const data = variableData as VariableDataRaw;
+	if (!Array.isArray(data.variables)) {
 		return;
 	}
 
-	for (const variable of variableData.variables) {
+	for (const variable of data.variables) {
 		if (!variable || typeof variable !== 'object') {
 			continue;
 		}
@@ -499,29 +951,40 @@ export function deriveConversationPatterns(analysis: SessionUsageAnalysis): void
  * Analyze a request object for all context references.
  * This is the unified method that processes text, contentReferences, and variableData.
  */
-export function analyzeRequestContext(request: any, refs: ContextReferenceUsage): void {
+export function analyzeRequestContext(request: unknown, refs: ContextReferenceUsage): void {
+	if (!request || typeof request !== 'object') { return; }
+	const req = request as Record<string, unknown>;
+
 	// Analyze user message text for context references
-	if (request.message) {
-		if (request.message.text) {
-			analyzeContextReferences(request.message.text, refs);
+	const message = req['message'];
+	if (message && typeof message === 'object') {
+		const msg = message as Record<string, unknown>;
+		if (typeof msg['text'] === 'string') {
+			analyzeContextReferences(msg['text'], refs);
 		}
-		if (request.message.parts) {
-			for (const part of request.message.parts) {
-				if (part.text) {
-					analyzeContextReferences(part.text, refs);
+		const parts = msg['parts'];
+		if (Array.isArray(parts)) {
+			for (const part of parts) {
+				if (part && typeof part === 'object') {
+					const p = part as Record<string, unknown>;
+					if (typeof p['text'] === 'string') {
+						analyzeContextReferences(p['text'], refs);
+					}
 				}
 			}
 		}
 	}
 
 	// Analyze contentReferences if present
-	if (request.contentReferences && Array.isArray(request.contentReferences)) {
-		analyzeContentReferences(request.contentReferences, refs);
+	const contentRefs = req['contentReferences'];
+	if (Array.isArray(contentRefs)) {
+		analyzeContentReferences(contentRefs, refs);
 	}
 
 	// Analyze variableData if present
-	if (request.variableData) {
-		analyzeVariableData(request.variableData, refs);
+	const variableData = req['variableData'];
+	if (variableData !== undefined) {
+		analyzeVariableData(variableData, refs);
 	}
 }
 
@@ -583,7 +1046,7 @@ export function applyModelTierClassification(
  * Calculate model switching statistics for a session file.
  * This method updates the analysis.modelSwitching field in place.
  */
-export async function calculateModelSwitching(deps: Pick<UsageAnalysisDeps, 'warn' | 'modelPricing' | 'tokenEstimators' | 'ecosystems'>, sessionFile: string, analysis: SessionUsageAnalysis, preloadedContent?: string, preloadedParsedJson?: any): Promise<void> {
+export async function calculateModelSwitching(deps: Pick<UsageAnalysisDeps, 'warn' | 'modelPricing' | 'tokenEstimators' | 'ecosystems'>, sessionFile: string, analysis: SessionUsageAnalysis, preloadedContent?: string, preloadedParsedJson?: unknown): Promise<void> {
 	try {
 		// Use non-cached method to avoid circular dependency
 		// (getSessionFileDataCached -> analyzeSessionUsage -> getModelUsageFromSessionCached -> getSessionFileDataCached)
@@ -627,13 +1090,14 @@ export async function calculateModelSwitching(deps: Pick<UsageAnalysisDeps, 'war
 		}
 		const isJsonl = sessionFile.endsWith('.jsonl') || isJsonlContent(fileContent);
 		if (!isJsonl) {
-			const sessionContent = preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent);
+			const sessionContent = (preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent) as unknown) as ParsedSessionJson;
 			if (sessionContent.requests && Array.isArray(sessionContent.requests)) {
 				let previousModel: string | null = null;
 				let switchCount = 0;
 				const tierCounts = { standard: 0, premium: 0, unknown: 0 };
 
-				for (const request of sessionContent.requests) {
+				for (const requestRaw of sessionContent.requests) {
+					const request = requestRaw as SessionRequestRaw;
 					const currentModel = getModelFromRequest(request, deps.modelPricing);
 					
 					// Count model switches
@@ -756,7 +1220,7 @@ export async function calculateModelSwitching(deps: Pick<UsageAnalysisDeps, 'war
  * - Conversation patterns (multi-turn sessions)
  * - Agent type usage
  */
-export async function trackEnhancedMetrics(deps: Pick<UsageAnalysisDeps, 'warn'>, sessionFile: string, analysis: SessionUsageAnalysis, preloadedContent?: string, preloadedParsedJson?: any): Promise<void> {
+export async function trackEnhancedMetrics(deps: Pick<UsageAnalysisDeps, 'warn'>, sessionFile: string, analysis: SessionUsageAnalysis, preloadedContent?: string, preloadedParsedJson?: unknown): Promise<void> {
 	try {
 		const fileContent = preloadedContent ?? await fs.promises.readFile(sessionFile, 'utf8');
 
@@ -772,7 +1236,7 @@ export async function trackEnhancedMetrics(deps: Pick<UsageAnalysisDeps, 'warn'>
 		let totalApplies = 0;
 		let totalCodeBlocks = 0;
 		const timestamps: number[] = [];
-		const timingsData: { firstProgress: number; totalElapsed: number; }[] = [];
+		const timingsData: { firstProgress?: number; totalElapsed?: number; }[] = [];
 		const waitTimes: number[] = [];
 		const agentCounts = {
 			editsAgent: 0,
@@ -798,7 +1262,7 @@ export async function trackEnhancedMetrics(deps: Pick<UsageAnalysisDeps, 'warn'>
 			
 			if (isDeltaBased) {
 				// Reconstruct full state
-				let sessionState: any = {};
+				let sessionState: DeltaSessionState = {};
 				for (const line of lines) {
 					try {
 						const delta = JSON.parse(line);
@@ -809,116 +1273,24 @@ export async function trackEnhancedMetrics(deps: Pick<UsageAnalysisDeps, 'warn'>
 				}
 				
 				// Extract timestamps
-				if (sessionState.creationDate) { timestamps.push(sessionState.creationDate); }
-				if (sessionState.lastMessageDate) { timestamps.push(sessionState.lastMessageDate); }
+				if (sessionState.creationDate !== undefined) { timestamps.push(sessionState.creationDate); }
+				if (sessionState.lastMessageDate !== undefined) { timestamps.push(sessionState.lastMessageDate); }
 				
 				// Process requests
-				const requests = sessionState.requests || [];
-				
-				for (const request of requests) {
-					if (!request) { continue; }
-					
-					// Track timestamps
-					if (request.timestamp) { timestamps.push(request.timestamp); }
-					
-					// Track timings
-					if (request.result?.timings) {
-						timingsData.push(request.result.timings);
-					}
-					
-					// Track wait times
-					if (request.timeSpentWaiting !== undefined) {
-						waitTimes.push(request.timeSpentWaiting);
-					}
-					
-					// Track agent types
-					if (request.agent?.id) {
-						const agentId = request.agent.id;
-						if (agentId.includes('edit')) {
-							agentCounts.editsAgent++;
-						} else if (agentId.includes('default')) {
-							agentCounts.defaultAgent++;
-						} else if (agentId.includes('workspace')) {
-							agentCounts.workspaceAgent++;
-						} else {
-							agentCounts.other++;
-						}
-					}
-					
-					// Track edit scope and apply usage
-					if (request.response && Array.isArray(request.response)) {
-						for (const resp of request.response) {
-							if (!resp) { continue; }
-							if (resp.kind === 'textEditGroup' && resp.uri) {
-								const filePath = resp.uri.path || JSON.stringify(resp.uri);
-								editedFiles.add(filePath);
-							}
-							if (resp.kind === 'codeblockUri') {
-								totalCodeBlocks++;
-								if (resp.isEdit === true) {
-									totalApplies++;
-								}
-							}
-						}
-					}
-				}
+				const requests = (sessionState.requests || []) as SessionRequestRaw[];
+				({ totalApplies, totalCodeBlocks } = processRequestsForEnhancedMetrics(requests, agentCounts, editedFiles, timestamps, timingsData, waitTimes));
 			}
 		} else {
 			// Handle regular JSON files
-			const sessionContent = preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent);
+			const sessionContent = (preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent) as unknown) as ParsedSessionJson;
 			
 			// Extract timestamps
 			if (sessionContent.creationDate) { timestamps.push(sessionContent.creationDate); }
 			if (sessionContent.lastMessageDate) { timestamps.push(sessionContent.lastMessageDate); }
 			
 			// Process requests
-			if (sessionContent.requests && Array.isArray(sessionContent.requests)) {
-				for (const request of sessionContent.requests) {
-					// Track timestamps
-					if (request.timestamp) { timestamps.push(request.timestamp); }
-					
-					// Track timings
-					if (request.result?.timings) {
-						timingsData.push(request.result.timings);
-					}
-					
-					// Track wait times
-					if (request.timeSpentWaiting !== undefined) {
-						waitTimes.push(request.timeSpentWaiting);
-					}
-					
-					// Track agent types
-					if (request.agent?.id) {
-						const agentId = request.agent.id;
-						if (agentId.includes('edit')) {
-							agentCounts.editsAgent++;
-						} else if (agentId.includes('default')) {
-							agentCounts.defaultAgent++;
-						} else if (agentId.includes('workspace')) {
-							agentCounts.workspaceAgent++;
-						} else {
-							agentCounts.other++;
-						}
-					}
-					
-					// Track edit scope and apply usage
-					if (request.response && Array.isArray(request.response)) {
-						for (const resp of request.response) {
-							if (!resp) { continue; }
-							if (resp.kind === 'textEditGroup' && resp.uri) {
-								const filePath = resp.uri.path || JSON.stringify(resp.uri);
-								editedFiles.add(filePath);
-							}
-							if (resp.kind === 'codeblockUri') {
-								totalCodeBlocks++;
-								if (resp.isEdit === true) {
-									totalApplies++;
-								}
-							}
-						}
-					}
-				}
-			}
+			const requests = (sessionContent.requests ?? []) as SessionRequestRaw[];
+			({ totalApplies, totalCodeBlocks } = processRequestsForEnhancedMetrics(requests, agentCounts, editedFiles, timestamps, timingsData, waitTimes));
 		}
 		
 		// Store edit scope data
@@ -996,7 +1368,7 @@ export function createEmptySessionUsageAnalysis(): SessionUsageAnalysis {
 /**
  * Analyze a session file for usage patterns (tool calls, modes, context references, MCP tools)
  */
-export async function analyzeSessionUsage(deps: UsageAnalysisDeps, sessionFile: string, preloadedContent?: string, preloadedParsedJson?: any): Promise<SessionUsageAnalysis> {
+export async function analyzeSessionUsage(deps: UsageAnalysisDeps, sessionFile: string, preloadedContent?: string, preloadedParsedJson?: unknown): Promise<SessionUsageAnalysis> {
 	const analysis: SessionUsageAnalysis = createEmptySessionUsageAnalysis();
 
 	try {
@@ -1028,7 +1400,7 @@ export async function analyzeSessionUsage(deps: UsageAnalysisDeps, sessionFile: 
 
 			if (isDeltaBased) {
 				// Delta-based format: reconstruct full state first, then process
-				let sessionState: any = {};
+				let sessionState: DeltaSessionState = {};
 				for (const line of lines) {
 					try {
 						const delta = JSON.parse(line);
@@ -1037,129 +1409,7 @@ export async function analyzeSessionUsage(deps: UsageAnalysisDeps, sessionFile: 
 						// Skip invalid lines
 					}
 				}
-
-				// Extract session mode from reconstructed state
-				const sessionModeType = sessionState.inputState?.mode 
-					? getModeType(sessionState.inputState.mode)
-					: 'ask';
-
-				// Detect implicit selections
-				if (sessionState.inputState?.selections && Array.isArray(sessionState.inputState.selections)) {
-					for (const sel of sessionState.inputState.selections) {
-						if (sel && (sel.startLineNumber !== sel.endLineNumber || sel.startColumn !== sel.endColumn)) {
-							analysis.contextReferences.implicitSelection++;
-							break;
-						}
-					}
-				}
-
-				// Process reconstructed requests array
-				const requests = sessionState.requests || [];
-				for (const request of requests) {
-					if (!request || !request.requestId) { continue; }
-
-					// Count by mode type
-					if (sessionModeType === 'agent') {
-						analysis.modeUsage.agent++;
-					} else if (sessionModeType === 'edit') {
-						analysis.modeUsage.edit++;
-					} else if (sessionModeType === 'plan') {
-						analysis.modeUsage.plan++;
-					} else if (sessionModeType === 'customAgent') {
-						analysis.modeUsage.customAgent++;
-					} else {
-						analysis.modeUsage.ask++;
-					}
-
-					// Check for agent in request
-					if (request.agent?.id) {
-						const toolName = request.agent.id;
-						analysis.toolCalls.total++;
-						analysis.toolCalls.byTool[toolName] = (analysis.toolCalls.byTool[toolName] || 0) + 1;
-					}
-
-					// Analyze all context references from this request
-					analyzeRequestContext(request, analysis.contextReferences);
-
-					// Extract tool calls and MCP tools from request.response array
-					if (request.response && Array.isArray(request.response)) {
-						for (const responseItem of request.response) {
-							if (!responseItem) { continue; }
-							if (responseItem.kind === 'toolInvocationSerialized' || responseItem.kind === 'prepareToolInvocation') {
-								const toolName = responseItem.toolId || responseItem.toolName || responseItem.invocationMessage?.toolName || responseItem.toolSpecificData?.kind || 'unknown';
-
-								// Check if this is an MCP tool by name pattern
-								if (isMcpTool(toolName)) {
-									analysis.mcpTools.total++;
-									const serverName = extractMcpServerName(toolName, deps.toolNameMap);
-									analysis.mcpTools.byServer[serverName] = (analysis.mcpTools.byServer[serverName] || 0) + 1;
-									const normalizedTool = normalizeMcpToolName(toolName);
-									analysis.mcpTools.byTool[normalizedTool] = (analysis.mcpTools.byTool[normalizedTool] || 0) + 1;
-								} else {
-									analysis.toolCalls.total++;
-									analysis.toolCalls.byTool[toolName] = (analysis.toolCalls.byTool[toolName] || 0) + 1;
-								}
-							}
-						}
-					}
-				}
-
-				// Compute model switching inline from the already-reconstructed state
-				// to avoid re-reading and re-parsing the file in calculateModelSwitching.
-				{
-					// Derive the session-level default model from reconstructed state,
-					// mirroring the selectedModel extraction used in the line-by-line path.
-					const sessionDefaultModel = (
-						sessionState.selectedModel?.identifier ||
-						sessionState.selectedModel?.metadata?.id ||
-						sessionState.inputState?.selectedModel?.metadata?.id ||
-						'gpt-4o'
-					).replace(/^copilot\//, '');
-
-					const models: string[] = [];
-					for (const req of requests) {
-						if (!req || !req.requestId) { continue; }
-						let reqModel = sessionDefaultModel;
-						if (req.modelId) {
-							reqModel = req.modelId.replace(/^copilot\//, '');
-						} else if (req.result?.metadata?.modelId) {
-							reqModel = req.result.metadata.modelId.replace(/^copilot\//, '');
-						} else if (req.result?.details) {
-							reqModel = getModelFromRequest(req, deps.modelPricing);
-						}
-						models.push(reqModel);
-					}
-					const uniqueModels = [...new Set(models)];
-					analysis.modelSwitching.uniqueModels = uniqueModels;
-					analysis.modelSwitching.modelCount = uniqueModels.length;
-					analysis.modelSwitching.totalRequests = models.length;
-					let switchCount = 0;
-					for (let mi = 1; mi < models.length; mi++) {
-						if (models[mi] !== models[mi - 1]) { switchCount++; }
-					}
-					analysis.modelSwitching.switchCount = switchCount;
-					applyModelTierClassification(deps.modelPricing, uniqueModels, models, analysis);
-				}
-
-				// Extract thinking effort (reasoning effort) from delta lines
-				{
-					const { effortByRequestId, defaultEffort, switchCount: effortSwitchCount } = buildReasoningEffortTimeline(lines);
-					if (defaultEffort !== null || effortByRequestId.size > 0) {
-						const byEffort: { [effort: string]: number } = {};
-						for (const [, effort] of effortByRequestId) {
-							byEffort[effort] = (byEffort[effort] || 0) + 1;
-						}
-						// If we have a defaultEffort but no per-request data, record it as the session default
-						if (effortByRequestId.size === 0 && defaultEffort !== null) {
-							byEffort[defaultEffort] = requests.length;
-						}
-						analysis.thinkingEffort = { byEffort, switchCount: effortSwitchCount, defaultEffort };
-					}
-				}
-
-				// Derive conversation patterns from mode usage before returning
-				deriveConversationPatterns(analysis);
-
+				processDeltaSessionAnalysis(deps, sessionState, lines, analysis);
 				return analysis;
 			}
 
@@ -1256,17 +1506,7 @@ export async function analyzeSessionUsage(deps: UsageAnalysisDeps, sessionFile: 
 						for (const request of event.v) {
 							if (request.requestId) {
 								// Count by mode type
-								if (sessionMode === 'agent') {
-									analysis.modeUsage.agent++;
-								} else if (sessionMode === 'edit') {
-									analysis.modeUsage.edit++;
-								} else if (sessionMode === 'plan') {
-									analysis.modeUsage.plan++;
-								} else if (sessionMode === 'customAgent') {
-									analysis.modeUsage.customAgent++;
-								} else {
-									analysis.modeUsage.ask++;
-								}
+								incrementModeUsage(sessionMode, analysis.modeUsage);
 							}
 							// Check for agent in request
 							if (request.agent?.id) {
@@ -1280,8 +1520,9 @@ export async function analyzeSessionUsage(deps: UsageAnalysisDeps, sessionFile: 
 
 							// Extract tool calls from request.response array (when full request is added)
 							if (request.response && Array.isArray(request.response)) {
-								for (const responseItem of request.response) {
-									if (!responseItem) { continue; }
+								for (const responseItemRaw of request.response as ResponseItemRaw[]) {
+									if (!responseItemRaw) { continue; }
+									const responseItem = responseItemRaw;
 									if (responseItem.kind === 'toolInvocationSerialized' || responseItem.kind === 'prepareToolInvocation') {
 										analysis.toolCalls.total++;
 										const toolName = responseItem.toolId || responseItem.toolName || responseItem.invocationMessage?.toolName || responseItem.toolSpecificData?.kind || 'unknown';
@@ -1323,19 +1564,8 @@ export async function analyzeSessionUsage(deps: UsageAnalysisDeps, sessionFile: 
 					if (event.type === 'tool.call' || event.type === 'tool.result' || event.type === 'tool.execution_start') {
 						const toolName = event.data?.toolName || event.toolName || 'unknown';
 
-						// Check if this is an MCP tool by name pattern
-						if (isMcpTool(toolName)) {
-							// Count as MCP tool
-							analysis.mcpTools.total++;
-							const serverName = extractMcpServerName(toolName, deps.toolNameMap);
-							analysis.mcpTools.byServer[serverName] = (analysis.mcpTools.byServer[serverName] || 0) + 1;
-							const normalizedTool = normalizeMcpToolName(toolName);
-							analysis.mcpTools.byTool[normalizedTool] = (analysis.mcpTools.byTool[normalizedTool] || 0) + 1;
-						} else {
-							// Count as regular tool call
-							analysis.toolCalls.total++;
-							analysis.toolCalls.byTool[toolName] = (analysis.toolCalls.byTool[toolName] || 0) + 1;
-						}
+						// Route to MCP or regular tool counters
+						recordToolOrMcpInvocation(toolName, analysis, deps.toolNameMap);
 					}
 
 					// Detect MCP tools from explicit MCP events
@@ -1370,89 +1600,10 @@ export async function analyzeSessionUsage(deps: UsageAnalysisDeps, sessionFile: 
 		}
 
 		// Handle regular .json files
-		const sessionContent = preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent);
+		const sessionContent = (preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent) as unknown) as ParsedSessionJson;
 
-		// Detect session mode and count interactions per request
-		if (sessionContent.requests && Array.isArray(sessionContent.requests)) {
-			for (const request of sessionContent.requests) {
-				// Determine mode for each individual request
-				let requestMode = 'ask'; // default
-
-				// Check request-level agent ID first (more specific)
-				if (request.agent?.id) {
-					const agentId = request.agent.id.toLowerCase();
-					if (agentId.includes('edit')) {
-						requestMode = 'edit';
-					} else if (agentId.includes('agent')) {
-						requestMode = 'agent';
-					}
-				}
-				// Fall back to session-level mode if no request-specific agent
-				else if (sessionContent.mode?.id) {
-					const modeId = sessionContent.mode.id.toLowerCase();
-					if (modeId.includes('agent')) {
-						requestMode = 'agent';
-					} else if (modeId.includes('edit')) {
-						requestMode = 'edit';
-					}
-				}
-
-				// Count this request in the appropriate mode
-				if (requestMode === 'agent') {
-					analysis.modeUsage.agent++;
-				} else if (requestMode === 'edit') {
-					analysis.modeUsage.edit++;
-				} else {
-					analysis.modeUsage.ask++;
-				}
-
-				// Analyze all context references from this request
-				analyzeRequestContext(request, analysis.contextReferences);
-
-				// Analyze response for tool calls and MCP tools
-				if (request.response && Array.isArray(request.response)) {
-					for (const responseItem of request.response) {
-						if (!responseItem) { continue; }
-						// Detect tool invocations
-						if (responseItem.kind === 'toolInvocationSerialized' ||
-							responseItem.kind === 'prepareToolInvocation') {
-							const toolName = responseItem.toolId ||
-								responseItem.toolName ||
-								responseItem.invocationMessage?.toolName ||
-								'unknown';
-
-							// Check if this is an MCP tool by name pattern
-							if (isMcpTool(toolName)) {
-								// Count as MCP tool
-								analysis.mcpTools.total++;
-								const serverName = extractMcpServerName(toolName, deps.toolNameMap);
-								analysis.mcpTools.byServer[serverName] = (analysis.mcpTools.byServer[serverName] || 0) + 1;
-								const normalizedTool = normalizeMcpToolName(toolName);
-								analysis.mcpTools.byTool[normalizedTool] = (analysis.mcpTools.byTool[normalizedTool] || 0) + 1;
-							} else {
-								// Count as regular tool call
-								analysis.toolCalls.total++;
-								analysis.toolCalls.byTool[toolName] = (analysis.toolCalls.byTool[toolName] || 0) + 1;
-							}
-						}
-
-						// Detect MCP servers starting
-						if (responseItem.kind === 'mcpServersStarting' && responseItem.didStartServerIds) {
-							for (const serverId of responseItem.didStartServerIds) {
-								analysis.mcpTools.total++;
-								analysis.mcpTools.byServer[serverId] = (analysis.mcpTools.byServer[serverId] || 0) + 1;
-							}
-						}
-
-						// Detect inline references in response items
-						if (responseItem.kind === 'inlineReference' && responseItem.inlineReference) {
-							// Treat response inlineReferences as contentReferences
-							analyzeContentReferences([responseItem], analysis.contextReferences);
-						}
-					}
-				}
-			}
-		}
+		// Process requests for mode usage, context references, and tool/MCP invocations
+		processJsonSessionRequests(deps, sessionContent, analysis);
 
 		// Calculate model switching statistics from session (pass preloaded content to avoid re-reading)
 		await calculateModelSwitching(deps, sessionFile, analysis, fileContent, preloadedParsedJson);
@@ -1466,7 +1617,60 @@ export async function analyzeSessionUsage(deps: UsageAnalysisDeps, sessionFile: 
 	return analysis;
 }
 
-export async function getModelUsageFromSession(deps: Pick<UsageAnalysisDeps, 'warn' | 'tokenEstimators' | 'modelPricing' | 'ecosystems'>, sessionFile: string, preloadedContent?: string, preloadedParsedJson?: any): Promise<ModelUsage> {
+/**
+ * Try to extract exact token usage from a session request result,
+ * checking all known storage formats (OLD, NEW, INSIDERS).
+ * Returns true if tokens were extracted; false if text-based estimation is needed.
+ */
+function tryExtractExactTokenUsage(
+	request: SessionRequestRaw,
+	model: string,
+	modelUsage: ModelUsage
+): boolean {
+	if (request.result?.usage) {
+		// OLD FORMAT (pre-Feb 2026)
+		const u = request.result.usage;
+		modelUsage[model].inputTokens += typeof u.promptTokens === 'number' ? u.promptTokens : 0;
+		modelUsage[model].outputTokens += typeof u.completionTokens === 'number' ? u.completionTokens : 0;
+		return true;
+	}
+	if (typeof request.result?.promptTokens === 'number' && typeof request.result?.outputTokens === 'number') {
+		// NEW FORMAT (Feb 2026+)
+		modelUsage[model].inputTokens += request.result.promptTokens;
+		modelUsage[model].outputTokens += request.result.outputTokens;
+		return true;
+	}
+	if (request.result?.metadata && typeof request.result.metadata.promptTokens === 'number' && typeof request.result.metadata.outputTokens === 'number') {
+		// INSIDERS FORMAT (Feb 2026+): Tokens nested under result.metadata
+		modelUsage[model].inputTokens += request.result.metadata.promptTokens;
+		modelUsage[model].outputTokens += request.result.metadata.outputTokens;
+		return true;
+	}
+	return false;
+}
+
+/**
+ * Accumulate sub-agent token usage from a response item array into modelUsage.
+ * Sub-agent invocations are additive (not included in parent token counts).
+ */
+function accumulateSubAgentTokenUsage(
+	responseItems: ResponseItemRaw[],
+	baseModel: string,
+	modelUsage: ModelUsage,
+	tokenEstimators: { [key: string]: number }
+): void {
+	for (const responseItem of responseItems) {
+		const subAgent = extractSubAgentData(responseItem);
+		if (subAgent) {
+			const saModel = subAgent.modelName || baseModel;
+			if (!modelUsage[saModel]) { modelUsage[saModel] = { inputTokens: 0, outputTokens: 0 }; }
+			if (subAgent.prompt) { modelUsage[saModel].inputTokens += estimateTokensFromText(subAgent.prompt, saModel, tokenEstimators); }
+			if (subAgent.result) { modelUsage[saModel].outputTokens += estimateTokensFromText(subAgent.result, saModel, tokenEstimators); }
+		}
+	}
+}
+
+export async function getModelUsageFromSession(deps: Pick<UsageAnalysisDeps, 'warn' | 'tokenEstimators' | 'modelPricing' | 'ecosystems'>, sessionFile: string, preloadedContent?: string, preloadedParsedJson?: unknown): Promise<ModelUsage> {
 	const modelUsage: ModelUsage = {};
 
 	// Dispatch to ecosystem adapter when available
@@ -1495,7 +1699,7 @@ export async function getModelUsageFromSession(deps: Pick<UsageAnalysisDeps, 'wa
 			let defaultModel = 'unknown';
 
 			// For delta-based formats, reconstruct state to extract actual usage
-			let sessionState: any = {};
+			let sessionState: DeltaSessionState = {};
 			let isDeltaBased = false;
 			// For CLI (non-delta) sessions: capture exact per-model usage from session.shutdown
 			let cliShutdownModelUsage: ModelUsage | null = null;
@@ -1560,7 +1764,7 @@ export async function getModelUsageFromSession(deps: Pick<UsageAnalysisDeps, 'wa
 						// shutdown events so no segment's tokens are lost.
 						if (event.type === 'session.shutdown' && event.data?.modelMetrics) {
 							if (!cliShutdownModelUsage) { cliShutdownModelUsage = {}; }
-							for (const [modelName, metrics] of Object.entries(event.data.modelMetrics) as [string, any][]) {
+							for (const [modelName, metrics] of Object.entries(event.data.modelMetrics as Record<string, { usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number } }>)) {
 								const usage = metrics?.usage;
 								if (usage) {
 									if (!cliShutdownModelUsage[modelName]) {
@@ -1628,8 +1832,10 @@ export async function getModelUsageFromSession(deps: Pick<UsageAnalysisDeps, 'wa
 
 			// For delta-based formats, extract actual usage from reconstructed state
 			if (isDeltaBased && sessionState.requests && Array.isArray(sessionState.requests)) {
-				for (const request of sessionState.requests) {
-					if (!request || !request.requestId) { continue; }
+				for (const requestRaw of sessionState.requests) {
+					if (!requestRaw) { continue; }
+					const request = requestRaw as SessionRequestRaw;
+					if (!request.requestId) { continue; }
 
 					// Extract request-level modelId
 					let requestModel = defaultModel;
@@ -1646,26 +1852,13 @@ export async function getModelUsageFromSession(deps: Pick<UsageAnalysisDeps, 'wa
 					}
 
 					// Use actual usage if available, otherwise estimate from text
-					if (request.result?.usage) {
-						// OLD FORMAT (pre-Feb 2026)
-						const u = request.result.usage;
-						modelUsage[requestModel].inputTokens += typeof u.promptTokens === 'number' ? u.promptTokens : 0;
-						modelUsage[requestModel].outputTokens += typeof u.completionTokens === 'number' ? u.completionTokens : 0;
-					} else if (typeof request.result?.promptTokens === 'number' && typeof request.result?.outputTokens === 'number') {
-						// NEW FORMAT (Feb 2026+)
-						modelUsage[requestModel].inputTokens += request.result.promptTokens;
-						modelUsage[requestModel].outputTokens += request.result.outputTokens;
-					} else if (request.result?.metadata && typeof request.result.metadata.promptTokens === 'number' && typeof request.result.metadata.outputTokens === 'number') {
-						// INSIDERS FORMAT (Feb 2026+): Tokens nested under result.metadata
-						modelUsage[requestModel].inputTokens += request.result.metadata.promptTokens;
-						modelUsage[requestModel].outputTokens += request.result.metadata.outputTokens;
-					} else {
-						// Fallback to text-based estimation
+					if (!tryExtractExactTokenUsage(request, requestModel, modelUsage)) {
+						// Fallback: estimate from message text and response content
 						if (request.message?.text) {
 							modelUsage[requestModel].inputTokens += estimateTokensFromText(request.message.text, requestModel, deps.tokenEstimators);
 						}
 						if (request.response && Array.isArray(request.response)) {
-							for (const responseItem of request.response) {
+							for (const responseItem of request.response as ResponseItemRaw[]) {
 								if (responseItem?.value) {
 									modelUsage[requestModel].outputTokens += estimateTokensFromText(responseItem.value, requestModel, deps.tokenEstimators);
 								}
@@ -1675,15 +1868,7 @@ export async function getModelUsageFromSession(deps: Pick<UsageAnalysisDeps, 'wa
 
 					// Sub-agent invocations are additive: not included in parent actual token counts
 					if (request.response && Array.isArray(request.response)) {
-						for (const responseItem of request.response) {
-							const subAgent = extractSubAgentData(responseItem);
-							if (subAgent) {
-								const saModel = subAgent.modelName || requestModel;
-								if (!modelUsage[saModel]) { modelUsage[saModel] = { inputTokens: 0, outputTokens: 0 }; }
-								if (subAgent.prompt) { modelUsage[saModel].inputTokens += estimateTokensFromText(subAgent.prompt, saModel, deps.tokenEstimators); }
-								if (subAgent.result) { modelUsage[saModel].outputTokens += estimateTokensFromText(subAgent.result, saModel, deps.tokenEstimators); }
-							}
-						}
+						accumulateSubAgentTokenUsage(request.response as ResponseItemRaw[], requestModel, modelUsage, deps.tokenEstimators);
 					}
 				}
 			}
@@ -1691,7 +1876,7 @@ export async function getModelUsageFromSession(deps: Pick<UsageAnalysisDeps, 'wa
 			// FALLBACK: If reconstruction missed result data, use regex extraction from raw lines
 			const rawModelUsage = extractPerRequestUsageFromRawLines(lines);
 			for (const [reqIdx, extracted] of rawModelUsage) {
-				const request = sessionState.requests?.[reqIdx];
+				const request = sessionState.requests?.[reqIdx] as SessionRequestRaw | undefined;
 				if (!request) { continue; }
 				// Only use regex fallback if reconstruction didn't already provide usage
 				if (request.result?.usage || (typeof request.result?.promptTokens === 'number') || (request.result?.metadata && typeof request.result.metadata.promptTokens === 'number')) { continue; }
@@ -1706,10 +1891,11 @@ export async function getModelUsageFromSession(deps: Pick<UsageAnalysisDeps, 'wa
 		}
 
 		// Handle regular .json files
-		const sessionContent = preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent);
+		const sessionContent = (preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent) as unknown) as ParsedSessionJson;
 
 		if (sessionContent.requests && Array.isArray(sessionContent.requests)) {
-			for (const request of sessionContent.requests) {
+			for (const requestRaw of sessionContent.requests) {
+				const request = requestRaw as SessionRequestRaw;
 				// Get model for this request
 				const model = getModelFromRequest(request, deps.modelPricing);
 
@@ -1719,37 +1905,19 @@ export async function getModelUsageFromSession(deps: Pick<UsageAnalysisDeps, 'wa
 				}
 
 				// Use actual usage if available, otherwise estimate from text
-				if (request.result?.usage) {
-					// OLD FORMAT (pre-Feb 2026)
-					const u = request.result.usage;
-					modelUsage[model].inputTokens += typeof u.promptTokens === 'number' ? u.promptTokens : 0;
-					modelUsage[model].outputTokens += typeof u.completionTokens === 'number' ? u.completionTokens : 0;
-				} else if (typeof request.result?.promptTokens === 'number' && typeof request.result?.outputTokens === 'number') {
-					// NEW FORMAT (Feb 2026+)
-					modelUsage[model].inputTokens += request.result.promptTokens;
-					modelUsage[model].outputTokens += request.result.outputTokens;
-				} else if (request.result?.metadata && typeof request.result.metadata.promptTokens === 'number' && typeof request.result.metadata.outputTokens === 'number') {
-					// INSIDERS FORMAT (Feb 2026+): Tokens nested under result.metadata
-					modelUsage[model].inputTokens += request.result.metadata.promptTokens;
-					modelUsage[model].outputTokens += request.result.metadata.outputTokens;
-				} else {
-					// Fallback to text-based estimation
-					// Estimate tokens from user message (input)
+				if (!tryExtractExactTokenUsage(request, model, modelUsage)) {
+					// Fallback: estimate from message parts and response content
 					if (request.message && request.message.parts) {
 						for (const part of request.message.parts) {
 							if (part.text) {
-								const tokens = estimateTokensFromText(part.text, model, deps.tokenEstimators);
-								modelUsage[model].inputTokens += tokens;
+								modelUsage[model].inputTokens += estimateTokensFromText(part.text, model, deps.tokenEstimators);
 							}
 						}
 					}
-
-					// Estimate tokens from assistant response (output)
 					if (request.response && Array.isArray(request.response)) {
-						for (const responseItem of request.response) {
+						for (const responseItem of request.response as ResponseItemRaw[]) {
 							if (responseItem?.value) {
-								const tokens = estimateTokensFromText(responseItem.value, model, deps.tokenEstimators);
-								modelUsage[model].outputTokens += tokens;
+								modelUsage[model].outputTokens += estimateTokensFromText(responseItem.value, model, deps.tokenEstimators);
 							}
 						}
 					}
@@ -1757,15 +1925,7 @@ export async function getModelUsageFromSession(deps: Pick<UsageAnalysisDeps, 'wa
 
 				// Sub-agent invocations are additive: not included in parent actual token counts
 				if (request.response && Array.isArray(request.response)) {
-					for (const responseItem of request.response) {
-						const subAgent = extractSubAgentData(responseItem);
-						if (subAgent) {
-							const saModel = subAgent.modelName || model;
-							if (!modelUsage[saModel]) { modelUsage[saModel] = { inputTokens: 0, outputTokens: 0 }; }
-							if (subAgent.prompt) { modelUsage[saModel].inputTokens += estimateTokensFromText(subAgent.prompt, saModel, deps.tokenEstimators); }
-							if (subAgent.result) { modelUsage[saModel].outputTokens += estimateTokensFromText(subAgent.result, saModel, deps.tokenEstimators); }
-						}
-					}
+					accumulateSubAgentTokenUsage(request.response as ResponseItemRaw[], model, modelUsage, deps.tokenEstimators);
 				}
 			}
 		}
@@ -1775,3 +1935,6 @@ export async function getModelUsageFromSession(deps: Pick<UsageAnalysisDeps, 'wa
 
 	return modelUsage;
 }
+
+
+
