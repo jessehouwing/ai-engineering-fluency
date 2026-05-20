@@ -68,17 +68,17 @@ import type {
   WorkspaceCustomizationSummary,
   AgentSessionsResult,
 } from './types';
-import { OpenCodeDataAccess } from './opencode';
-import { CrushDataAccess } from './crush';
-import { VisualStudioDataAccess } from './visualstudio';
-import { ContinueDataAccess } from './continue';
-import { ClaudeCodeDataAccess } from './claudecode';
-import { ClaudeDesktopCoworkDataAccess } from './claudedesktop';
-import { MistralVibeDataAccess } from './mistralvibe';
-import { GeminiCliDataAccess } from './geminicli';
+import type { OpenCodeDataAccess } from './opencode';
+import type { CrushDataAccess } from './crush';
+import type { VisualStudioDataAccess } from './visualstudio';
+import type { ContinueDataAccess } from './continue';
+import type { ClaudeCodeDataAccess } from './claudecode';
+import type { ClaudeDesktopCoworkDataAccess } from './claudedesktop';
+import type { MistralVibeDataAccess } from './mistralvibe';
+import type { GeminiCliDataAccess } from './geminicli';
 import type { IEcosystemAdapter } from './ecosystemAdapter';
 import { getEcosystemDisplayName } from './ecosystemAdapter';
-import { buildAdapterRegistry } from './adapters';
+import { buildAdapterRegistry, createDataAccessInstances } from './adapters';
 import { getVSCodeUserPaths } from './adapters/copilotChatAdapter';
 import { isJetBrainsSessionPath } from './adapters/jetbrainsAdapter';
 import { detectJetBrainsModelHintFromContent } from './jetbrains';
@@ -887,23 +887,17 @@ class CopilotTokenTracker implements vscode.Disposable {
 
 	constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
 		this.extensionUri = extensionUri;
-		this.openCode = new OpenCodeDataAccess(extensionUri);
-		this.crush = new CrushDataAccess(extensionUri);
-		this.continue_ = new ContinueDataAccess();
-		this.visualStudio = new VisualStudioDataAccess();
-		this.claudeCode = new ClaudeCodeDataAccess();
-		this.claudeDesktopCowork = new ClaudeDesktopCoworkDataAccess();
-		this.mistralVibe = new MistralVibeDataAccess();
-		this.geminiCli = new GeminiCliDataAccess();
+		const dataAccess = createDataAccessInstances(extensionUri);
+		this.openCode = dataAccess.openCode;
+		this.crush = dataAccess.crush;
+		this.continue_ = dataAccess.continue_;
+		this.visualStudio = dataAccess.visualStudio;
+		this.claudeCode = dataAccess.claudeCode;
+		this.claudeDesktopCowork = dataAccess.claudeDesktopCowork;
+		this.mistralVibe = dataAccess.mistralVibe;
+		this.geminiCli = dataAccess.geminiCli;
 		this.ecosystems = buildAdapterRegistry({
-			openCode: this.openCode,
-			crush: this.crush,
-			continue_: this.continue_,
-			visualStudio: this.visualStudio,
-			claudeCode: this.claudeCode,
-			claudeDesktopCowork: this.claudeDesktopCowork,
-			mistralVibe: this.mistralVibe,
-			geminiCli: this.geminiCli,
+			...dataAccess,
 			estimateTokens: (t, m) => this.estimateTokensFromText(t, m),
 			isMcpTool: (t) => this.isMcpTool(t),
 			extractMcpServerName: (t) => this.extractMcpServerName(t),

@@ -5,16 +5,22 @@
  * adapters in the same order (first match wins). This factory centralises that
  * list so adding a new adapter only requires a single change here instead of
  * one change per consumer.
+ *
+ * When adding a new adapter:
+ *  1. Import the data-access class below (concrete import).
+ *  2. Add it to `AdapterRegistryDeps` (so both callers are reminded to pass it).
+ *  3. Instantiate it in `createDataAccessInstances`.
+ *  4. Wire the adapter instance into `buildAdapterRegistry`.
  */
 import type { IEcosystemAdapter } from '../ecosystemAdapter';
-import type { OpenCodeDataAccess } from '../opencode';
-import type { CrushDataAccess } from '../crush';
-import type { ContinueDataAccess } from '../continue';
-import type { VisualStudioDataAccess } from '../visualstudio';
-import type { ClaudeCodeDataAccess } from '../claudecode';
-import type { ClaudeDesktopCoworkDataAccess } from '../claudedesktop';
-import type { MistralVibeDataAccess } from '../mistralvibe';
-import type { GeminiCliDataAccess } from '../geminicli';
+import { OpenCodeDataAccess } from '../opencode';
+import { CrushDataAccess } from '../crush';
+import { ContinueDataAccess } from '../continue';
+import { VisualStudioDataAccess } from '../visualstudio';
+import { ClaudeCodeDataAccess } from '../claudecode';
+import { ClaudeDesktopCoworkDataAccess } from '../claudedesktop';
+import { MistralVibeDataAccess } from '../mistralvibe';
+import { GeminiCliDataAccess } from '../geminicli';
 
 import { OpenCodeAdapter } from './openCodeAdapter';
 import { CrushAdapter } from './crushAdapter';
@@ -44,6 +50,35 @@ export interface AdapterRegistryDeps {
 	isMcpTool: (toolName: string) => boolean;
 	/** Extracts the MCP server name from a namespaced tool name. */
 	extractMcpServerName: (toolName: string) => string;
+}
+
+/**
+ * The data-access instance subset of AdapterRegistryDeps — excludes the
+ * callback functions (estimateTokens, isMcpTool, extractMcpServerName) that
+ * differ between the CLI and the VS Code extension.
+ */
+export type DataAccessInstances = Omit<AdapterRegistryDeps, 'estimateTokens' | 'isMcpTool' | 'extractMcpServerName'>;
+
+/**
+ * Creates all data-access instances needed by the adapter registry.
+ *
+ * Centralises instantiation so adding a new adapter only requires changes
+ * here, not in every consumer (CLI and VS Code extension).
+ *
+ * @param extensionUri - VS Code extension URI (or equivalent fake URI in the CLI)
+ *   passed to data-access constructors that require it for WASM loading.
+ */
+export function createDataAccessInstances(extensionUri: any): DataAccessInstances {
+	return {
+		openCode: new OpenCodeDataAccess(extensionUri),
+		crush: new CrushDataAccess(extensionUri),
+		continue_: new ContinueDataAccess(),
+		visualStudio: new VisualStudioDataAccess(),
+		claudeCode: new ClaudeCodeDataAccess(),
+		claudeDesktopCowork: new ClaudeDesktopCoworkDataAccess(),
+		mistralVibe: new MistralVibeDataAccess(),
+		geminiCli: new GeminiCliDataAccess(),
+	};
 }
 
 /**
