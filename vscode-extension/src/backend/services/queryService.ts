@@ -33,6 +33,32 @@ export interface QueryServiceDeps {
 /**
  * QueryService manages backend queries, filtering, and result caching.
  */
+interface EntityAggregation {
+	modelsSet: Set<string>;
+	workspacesSet: Set<string>;
+	machinesSet: Set<string>;
+	usersSet: Set<string>;
+	workspaceNamesById: Record<string, string>;
+	machineNamesById: Record<string, string>;
+	totalTokens: number;
+	totalInteractions: number;
+	modelUsage: ModelUsage;
+	workspaceTokens: Map<string, number>;
+	machineTokens: Map<string, number>;
+}
+
+interface ExtractedEntityFields {
+	model: string;
+	workspaceId: string;
+	workspaceName: string;
+	machineId: string;
+	machineName: string;
+	userId: string;
+	inputTokens: number;
+	outputTokens: number;
+	interactions: number;
+}
+
 export class QueryService {
 	private backendLastQueryResult: BackendQueryResultLike | undefined;
 	private backendFilters: BackendQueryFilters = { lookbackDays: DEFAULT_LOOKBACK_DAYS };
@@ -144,13 +170,43 @@ export class QueryService {
 			startDayKey,
 			endDayKey
 		});
+		const agg = this._aggregateEntities(allEntities, filters);
+		const result = this._buildQueryResult(agg);
+		this.backendLastQueryResult = result;
+		this.backendLastQueryCacheKey = cacheKey;
+		this.backendLastQueryCacheAt = Date.now();
+		return result;
+	}
+
+	private _extractEntityFields(entity: any): ExtractedEntityFields {
+		return {
+			model: (entity.model ?? '').toString(),
+			workspaceId: (entity.workspaceId ?? '').toString(),
+			workspaceName: typeof entity.workspaceName === 'string' ? entity.workspaceName.trim() : '',
+			machineId: (entity.machineId ?? '').toString(),
+			machineName: typeof entity.machineName === 'string' ? entity.machineName.trim() : '',
+			userId: (entity.userId ?? '').toString(),
+			inputTokens: Number.isFinite(Number(entity.inputTokens)) ? Number(entity.inputTokens) : 0,
+			outputTokens: Number.isFinite(Number(entity.outputTokens)) ? Number(entity.outputTokens) : 0,
+			interactions: Number.isFinite(Number(entity.interactions)) ? Number(entity.interactions) : 0,
+		};
+	}
+
+	private _passesFilters(fields: ExtractedEntityFields, filters: BackendQueryFilters): boolean {
+		if (filters.model && filters.model !== fields.model) { return false; }
+		if (filters.workspaceId && filters.workspaceId !== fields.workspaceId) { return false; }
+		if (filters.machineId && filters.machineId !== fields.machineId) { return false; }
+		if (filters.userId && filters.userId !== fields.userId) { return false; }
+		return true;
+	}
+
+	private _aggregateEntities(allEntities: Awaited<ReturnType<DataPlaneService['listEntitiesForRange']>>, filters: BackendQueryFilters): EntityAggregation {
 		const modelsSet = new Set<string>();
 		const workspacesSet = new Set<string>();
 		const machinesSet = new Set<string>();
 		const usersSet = new Set<string>();
 		const workspaceNamesById: Record<string, string> = {};
 		const machineNamesById: Record<string, string> = {};
-
 		let totalTokens = 0;
 		let totalInteractions = 0;
 		const modelUsage: ModelUsage = {};
@@ -158,60 +214,47 @@ export class QueryService {
 		const machineTokens = new Map<string, number>();
 
 		for (const entity of allEntities) {
-			const model = (entity.model ?? '').toString();
-			const workspaceId = (entity.workspaceId ?? '').toString();
-			const workspaceName = typeof (entity as any).workspaceName === 'string' ? (entity as any).workspaceName.trim() : '';
-			const machineId = (entity.machineId ?? '').toString();
-			const machineName = typeof (entity as any).machineName === 'string' ? (entity as any).machineName.trim() : '';
-			const userId = (entity.userId ?? '').toString();
-			const inputTokens = Number.isFinite(Number(entity.inputTokens)) ? Number(entity.inputTokens) : 0;
-			const outputTokens = Number.isFinite(Number(entity.outputTokens)) ? Number(entity.outputTokens) : 0;
-			const interactions = Number.isFinite(Number(entity.interactions)) ? Number(entity.interactions) : 0;
-
-			if (!model || !workspaceId || !machineId) {
+			const fields = this._extractEntityFields(entity);
+			if (!fields.model || !fields.workspaceId || !fields.machineId) {
 				continue;
 			}
 
-			modelsSet.add(model);
-			workspacesSet.add(workspaceId);
-			machinesSet.add(machineId);
-			if (userId) {
-				usersSet.add(userId);
+			modelsSet.add(fields.model);
+			workspacesSet.add(fields.workspaceId);
+			machinesSet.add(fields.machineId);
+			if (fields.userId) {
+				usersSet.add(fields.userId);
 			}
-			if (workspaceName && !workspaceNamesById[workspaceId]) {
-				workspaceNamesById[workspaceId] = workspaceName;
+			if (fields.workspaceName && !workspaceNamesById[fields.workspaceId]) {
+				workspaceNamesById[fields.workspaceId] = fields.workspaceName;
 			}
-			if (machineName && !machineNamesById[machineId]) {
-				machineNamesById[machineId] = machineName;
+			if (fields.machineName && !machineNamesById[fields.machineId]) {
+				machineNamesById[fields.machineId] = fields.machineName;
 			}
 
-			if (filters.model && filters.model !== model) {
-				continue;
-			}
-			if (filters.workspaceId && filters.workspaceId !== workspaceId) {
-				continue;
-			}
-			if (filters.machineId && filters.machineId !== machineId) {
-				continue;
-			}
-			if (filters.userId && filters.userId !== userId) {
+			if (!this._passesFilters(fields, filters)) {
 				continue;
 			}
 
-			const tokens = inputTokens + outputTokens;
+			const tokens = fields.inputTokens + fields.outputTokens;
 			totalTokens += tokens;
-			totalInteractions += interactions;
+			totalInteractions += fields.interactions;
 
-			if (!modelUsage[model]) {
-				modelUsage[model] = { inputTokens: 0, outputTokens: 0 };
+			if (!modelUsage[fields.model]) {
+				modelUsage[fields.model] = { inputTokens: 0, outputTokens: 0 };
 			}
-			modelUsage[model].inputTokens += inputTokens;
-			modelUsage[model].outputTokens += outputTokens;
+			modelUsage[fields.model].inputTokens += fields.inputTokens;
+			modelUsage[fields.model].outputTokens += fields.outputTokens;
 
-			workspaceTokens.set(workspaceId, (workspaceTokens.get(workspaceId) ?? 0) + tokens);
-			machineTokens.set(machineId, (machineTokens.get(machineId) ?? 0) + tokens);
+			workspaceTokens.set(fields.workspaceId, (workspaceTokens.get(fields.workspaceId) ?? 0) + tokens);
+			machineTokens.set(fields.machineId, (machineTokens.get(fields.machineId) ?? 0) + tokens);
 		}
 
+		return { modelsSet, workspacesSet, machinesSet, usersSet, workspaceNamesById, machineNamesById, totalTokens, totalInteractions, modelUsage, workspaceTokens, machineTokens };
+	}
+
+	private _buildQueryResult(agg: EntityAggregation): BackendQueryResultLike {
+		const { modelsSet, workspacesSet, machinesSet, usersSet, workspaceNamesById, machineNamesById, totalTokens, totalInteractions, modelUsage, workspaceTokens, machineTokens } = agg;
 		const cost = this.deps.calculateEstimatedCost(modelUsage);
 		const co2 = (totalTokens / 1000) * this.deps.co2Per1kTokens;
 		const waterUsage = (totalTokens / 1000) * this.deps.waterUsagePer1kTokens;
@@ -229,7 +272,7 @@ export class QueryService {
 			estimatedCost: cost
 		};
 
-		const result: BackendQueryResultLike = {
+		return {
 			stats: {
 				today: statsForRange,
 				month: statsForRange,
@@ -250,11 +293,6 @@ export class QueryService {
 				.sort((a, b) => b.tokens - a.tokens)
 				.slice(0, MAX_UI_LIST_ITEMS)
 		};
-
-		this.backendLastQueryResult = result;
-		this.backendLastQueryCacheKey = cacheKey;
-		this.backendLastQueryCacheAt = Date.now();
-		return result;
 	}
 
 	/**
