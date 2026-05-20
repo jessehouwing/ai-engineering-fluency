@@ -7,15 +7,7 @@ import * as path from 'path';
 import * as os from 'os';
 import chalk from 'chalk';
 import { SessionDiscovery } from '../../vscode-extension/src/sessionDiscovery';
-import { OpenCodeDataAccess } from '../../vscode-extension/src/opencode';
-import { CrushDataAccess } from '../../vscode-extension/src/crush';
-import { ContinueDataAccess } from '../../vscode-extension/src/continue';
-import { VisualStudioDataAccess } from '../../vscode-extension/src/visualstudio';
-import { ClaudeCodeDataAccess } from '../../vscode-extension/src/claudecode';
-import { ClaudeDesktopCoworkDataAccess } from '../../vscode-extension/src/claudedesktop';
-import { MistralVibeDataAccess } from '../../vscode-extension/src/mistralvibe';
-import { GeminiCliDataAccess } from '../../vscode-extension/src/geminicli';
-import { buildAdapterRegistry } from '../../vscode-extension/src/adapters';
+import { buildAdapterRegistry, createDataAccessInstances } from '../../vscode-extension/src/adapters';
 import type { IEcosystemAdapter } from '../../vscode-extension/src/ecosystemAdapter';
 import { isMcpTool, extractMcpServerName, normalizePathForComparison } from '../../vscode-extension/src/workspaceHelpers';
 import { resolveFileUri } from '../../vscode-extension/src/workspacePathResolver';
@@ -52,14 +44,7 @@ function getEcosystems(): IEcosystemAdapter[] {
 	if (_ecosystems) { return _ecosystems; }
 	const fakeUri = vscodeStub.Uri.file(__dirname);
 	_ecosystems = buildAdapterRegistry({
-		openCode: new OpenCodeDataAccess(fakeUri),
-		crush: new CrushDataAccess(fakeUri),
-		continue_: new ContinueDataAccess(),
-		visualStudio: new VisualStudioDataAccess(),
-		claudeCode: new ClaudeCodeDataAccess(),
-		claudeDesktopCowork: new ClaudeDesktopCoworkDataAccess(),
-		mistralVibe: new MistralVibeDataAccess(),
-		geminiCli: new GeminiCliDataAccess(),
+		...createDataAccessInstances(fakeUri as any),
 		estimateTokens: (t, m) => estimateTokensFromText(t, m ?? 'gpt-4', tokenEstimators),
 		isMcpTool,
 		extractMcpServerName,
