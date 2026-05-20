@@ -32,6 +32,32 @@ interface ShutdownModelMetrics {
 	};
 }
 
+/** Shape of a `toolInvocationSerialized` response item. */
+interface ToolInvocationSerializedItem {
+	kind: 'toolInvocationSerialized';
+	toolSpecificData?: unknown;
+}
+
+/** Shape of the `toolSpecificData` object for sub-agent invocations. */
+interface SubAgentToolSpecificData {
+	kind: 'subagent';
+	prompt?: unknown;
+	result?: unknown;
+	modelName?: unknown;
+}
+
+/** Type guard: narrows an unknown value to a ToolInvocationSerializedItem. */
+function isToolInvocationSerialized(obj: unknown): obj is ToolInvocationSerializedItem {
+	if (typeof obj !== 'object' || obj === null) { return false; }
+	return (obj as ToolInvocationSerializedItem).kind === 'toolInvocationSerialized';
+}
+
+/** Type guard: narrows an unknown value to a SubAgentToolSpecificData. */
+function isSubAgentToolSpecificData(obj: unknown): obj is SubAgentToolSpecificData {
+	if (typeof obj !== 'object' || obj === null) { return false; }
+	return (obj as SubAgentToolSpecificData).kind === 'subagent';
+}
+
 export function estimateTokensFromText(text: string, model: string = 'gpt-4', tokenEstimators: { [key: string]: number } = {}): number {
 	// Token estimation based on character count and model
 	let tokensPerChar = 0.25; // default
@@ -66,28 +92,23 @@ export function normalizeDisplayModelName(displayName: string): string {
  *   - a streaming-char object: { "0": "H", "1": "i", ... }
  */
 export function extractSubAgentData(item: unknown): { prompt: string; result: string; modelName: string } | null {
-	if (!item || typeof item !== 'object') { return null; }
-	const i = item as Record<string, unknown>;
-	if (i['kind'] !== 'toolInvocationSerialized') { return null; }
-	const tsd = i['toolSpecificData'];
-	if (!tsd || typeof tsd !== 'object') { return null; }
-	const t = tsd as Record<string, unknown>;
-	if (t['kind'] !== 'subagent') { return null; }
+	if (!isToolInvocationSerialized(item)) { return null; }
+	const tsd = item.toolSpecificData;
+	if (!isSubAgentToolSpecificData(tsd)) { return null; }
 
-	const prompt = typeof t['prompt'] === 'string' ? t['prompt'] : '';
+	const prompt = typeof tsd.prompt === 'string' ? tsd.prompt : '';
 
 	let result = '';
-	const rawResult = t['result'];
-	if (typeof rawResult === 'string') {
-		result = rawResult;
-	} else if (rawResult && typeof rawResult === 'object') {
+	if (typeof tsd.result === 'string') {
+		result = tsd.result;
+	} else if (tsd.result !== null && typeof tsd.result === 'object') {
 		// Streaming char format: {"0":"H","1":"i",...} — sort by numeric key then join
-		const entries = Object.entries(rawResult as Record<string, unknown>);
+		const entries = Object.entries(tsd.result as Record<string, unknown>);
 		entries.sort(([a], [b]) => Number(a) - Number(b));
 		result = entries.map(([, v]) => (typeof v === 'string' ? v : '')).join('');
 	}
 
-	const rawModel = typeof t['modelName'] === 'string' ? t['modelName'] : '';
+	const rawModel = typeof tsd.modelName === 'string' ? tsd.modelName : '';
 	const modelName = rawModel ? normalizeDisplayModelName(rawModel) : '';
 
 	return (prompt || result) ? { prompt, result, modelName } : null;
