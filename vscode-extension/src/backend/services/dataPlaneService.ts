@@ -13,8 +13,7 @@ import type { BackendSettings } from "../settings";
 import type {
   BackendAggDailyEntityLike,
   TableClientLike,
-} from "../storageTables";
-import {
+} from "../storageTables";import {
   buildAggPartitionKey,
   listAggDailyEntitiesFromTableClient,
 } from "../storageTables";
@@ -377,16 +376,16 @@ export class DataPlaneService {
    */
   async upsertEntitiesBatch(
     tableClient: TableClientLike,
-    entities: any[],
+    entities: BackendAggDailyEntityLike[],
   ): Promise<{
     successCount: number;
-    errors: Array<{ entity: any; error: Error }>;
+    errors: Array<{ entity: BackendAggDailyEntityLike; error: Error }>;
   }> {
     let successCount = 0;
-    const errors: Array<{ entity: any; error: Error }> = [];
+    const errors: Array<{ entity: BackendAggDailyEntityLike; error: Error }> = [];
 
     // Group entities by partition key for potential future batch optimization
-    const byPartition = new Map<string, any[]>();
+    const byPartition = new Map<string, BackendAggDailyEntityLike[]>();
     for (const entity of entities) {
       const pk = entity.partitionKey;
       if (!byPartition.has(pk)) {
@@ -425,7 +424,7 @@ export class DataPlaneService {
    */
   private async upsertEntityWithRetry(
     tableClient: TableClientLike,
-    entity: any,
+    entity: BackendAggDailyEntityLike,
     maxRetries: number = 3,
   ): Promise<void> {
     let lastError: Error | undefined;

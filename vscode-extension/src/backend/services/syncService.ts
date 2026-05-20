@@ -16,7 +16,7 @@ import { BACKEND_SYNC_MIN_INTERVAL_MS } from '../constants';
 import type { DailyRollupValue, ChatRequest, SessionFileCache, ModelUsage } from '../types';
 import { resolveUserIdentityForSync, type BackendUserIdentityMode } from '../identity';
 import { computeBackendSharingPolicy, hashMachineIdForTeam, hashWorkspaceIdForTeam } from '../sharingProfile';
-import { createDailyAggEntity } from '../storageTables';
+import { createDailyAggEntity, type BackendAggDailyEntityLike } from '../storageTables';
 import { CredentialService } from './credentialService';
 import { DataPlaneService } from './dataPlaneService';
 import { BackendUtility } from './utilityService';
@@ -1397,7 +1397,7 @@ return true;
 					}
 				}
 
-				const entities = [];
+				const entities: BackendAggDailyEntityLike[] = [];
 				for (const { key, value } of rollups.values()) {
 					const effectiveUserId = (key.userId ?? '').trim() || undefined;
 					const includeConsent = sharingPolicy.includeUserDimension && !!effectiveUserId;
@@ -1662,7 +1662,7 @@ return true;
 		this.deps.log(`Backfill: found data for ${sortedDays.length} days: ${sortedDays.slice(0, 10).join(', ')}${sortedDays.length > 10 ? '…' : ''}`);
 
 		const tableClient = this.dataPlaneService.createTableClient(settings, creds.tableCredential);
-		const entities = [];
+		const entities: BackendAggDailyEntityLike[] = [];
 		for (const { key, value } of rollups.values()) {
 			const effectiveUserId = (key.userId ?? '').trim() || undefined;
 			const includeConsent = sharingPolicy.includeUserDimension && !!effectiveUserId;

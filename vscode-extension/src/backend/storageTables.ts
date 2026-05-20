@@ -12,10 +12,10 @@ import type { BackendUserIdentityMode } from './identity';
  * Used for dependency injection and testing.
  */
 export interface TableClientLike {
-	listEntities(options?: any): AsyncIterableIterator<any>;
-	upsertEntity(entity: any, mode?: 'Merge' | 'Replace'): Promise<any>;
-	deleteEntity(partitionKey: string, rowKey: string): Promise<any>;
-	createTable?(): Promise<any>;
+	listEntities(options?: { queryOptions?: { filter?: string } }): AsyncIterableIterator<Partial<BackendAggDailyEntityLike>>;
+	upsertEntity(entity: BackendAggDailyEntityLike, mode?: 'Merge' | 'Replace'): Promise<unknown>;
+	deleteEntity(partitionKey: string, rowKey: string): Promise<unknown>;
+	createTable?(): Promise<unknown>;
 }
 
 /**
@@ -268,7 +268,7 @@ export function createDailyAggEntity(args: {
 		codeBlockApplyRate?: number;
 		sessionCount?: number;
 	};
-}): any {
+}): BackendAggDailyEntityLike {
 	const { datasetId, day, model, workspaceId, workspaceName, machineId, machineName, userId, userKeyType, shareWithTeam, consentAt, inputTokens, outputTokens, interactions, fluencyMetrics } = args;
 	
 	const effectiveUserId = (userId ?? '').trim();
