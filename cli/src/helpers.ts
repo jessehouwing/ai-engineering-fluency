@@ -16,6 +16,7 @@ import { ClaudeDesktopCoworkDataAccess } from '../../vscode-extension/src/claude
 import { MistralVibeDataAccess } from '../../vscode-extension/src/mistralvibe';
 import { GeminiCliDataAccess } from '../../vscode-extension/src/geminicli';
 import { buildAdapterRegistry } from '../../vscode-extension/src/adapters';
+import type { IEcosystemAdapter } from '../../vscode-extension/src/ecosystemAdapter';
 import { isMcpTool, extractMcpServerName } from '../../vscode-extension/src/workspaceHelpers';
 import { parseSessionFileContent } from '../../vscode-extension/src/sessionParser';
 import { estimateTokensFromText, getModelFromRequest, isJsonlContent, estimateTokensFromJsonlSession, calculateEstimatedCost, getModelTier } from '../../vscode-extension/src/tokenEstimation';
@@ -45,76 +46,31 @@ const log = (msg: string) => { /* quiet by default */ };
 const warn = (msg: string) => { /* quiet by default */ };
 const error = (msg: string, err?: any) => console.error(chalk.red(msg), err || '');
 
-/** Create OpenCode data access instance for CLI */
-function createOpenCode(): OpenCodeDataAccess {
+/** Synchronous lazy-initialized ecosystem registry — created once on first use. */
+let _ecosystems: IEcosystemAdapter[] | null = null;
+
+/** Returns the shared ecosystem adapter registry, creating it on first call. */
+function getEcosystems(): IEcosystemAdapter[] {
+	if (_ecosystems) { return _ecosystems; }
 	const fakeUri = vscodeStub.Uri.file(__dirname);
-	return new OpenCodeDataAccess(fakeUri as any);
+	_ecosystems = buildAdapterRegistry({
+		openCode: new OpenCodeDataAccess(fakeUri as any),
+		crush: new CrushDataAccess(fakeUri as any),
+		continue_: new ContinueDataAccess(),
+		visualStudio: new VisualStudioDataAccess(),
+		claudeCode: new ClaudeCodeDataAccess(),
+		claudeDesktopCowork: new ClaudeDesktopCoworkDataAccess(),
+		mistralVibe: new MistralVibeDataAccess(),
+		geminiCli: new GeminiCliDataAccess(),
+		estimateTokens: (t, m) => estimateTokensFromText(t, m ?? 'gpt-4', tokenEstimators),
+		isMcpTool,
+		extractMcpServerName,
+	});
+	return _ecosystems;
 }
-
-/** Create Crush data access instance for CLI */
-function createCrush(): CrushDataAccess {
-	const fakeUri = vscodeStub.Uri.file(__dirname);
-	return new CrushDataAccess(fakeUri as any);
-}
-
-/** Create Continue data access instance for CLI */
-function createContinue(): ContinueDataAccess {
-	return new ContinueDataAccess();
-}
-
-/** Create Visual Studio data access instance for CLI */
-function createVisualStudio(): VisualStudioDataAccess {
-	return new VisualStudioDataAccess();
-}
-
-/** Create Claude Code data access instance for CLI */
-function createClaudeCode(): ClaudeCodeDataAccess {
-	return new ClaudeCodeDataAccess();
-}
-
-/** Create Claude Desktop Cowork data access instance for CLI */
-function createClaudeDesktopCowork(): ClaudeDesktopCoworkDataAccess {
-	return new ClaudeDesktopCoworkDataAccess();
-}
-
-/** Create Mistral Vibe data access instance for CLI */
-function createMistralVibe(): MistralVibeDataAccess {
-	return new MistralVibeDataAccess();
-}
-
-/** Create Gemini CLI data access instance for CLI */
-function createGeminiCli(): GeminiCliDataAccess {
-	return new GeminiCliDataAccess();
-}
-
-// Module-level singletons so sql.js WASM is only initialised once across all session files
-const _openCodeInstance = createOpenCode();
-const _crushInstance = createCrush();
-const _continueInstance = createContinue();
-const _visualStudioInstance = createVisualStudio();
-const _claudeCodeInstance = createClaudeCode();
-const _claudeDesktopCoworkInstance = createClaudeDesktopCowork();
-const _mistralVibeInstance = createMistralVibe();
-const _geminiCliInstance = createGeminiCli();
-
-/** Ordered registry of ecosystem adapters — first match wins. */
-const _ecosystems = buildAdapterRegistry({
-	openCode: _openCodeInstance,
-	crush: _crushInstance,
-	continue_: _continueInstance,
-	visualStudio: _visualStudioInstance,
-	claudeCode: _claudeCodeInstance,
-	claudeDesktopCowork: _claudeDesktopCoworkInstance,
-	mistralVibe: _mistralVibeInstance,
-	geminiCli: _geminiCliInstance,
-	estimateTokens: (t, m) => estimateTokensFromText(t, m ?? 'gpt-4', tokenEstimators),
-	isMcpTool: isMcpTool,
-	extractMcpServerName: extractMcpServerName,
-});
-
 /** Create session discovery instance for CLI */
 function createSessionDiscovery(): SessionDiscovery {
-	return new SessionDiscovery({ log, warn, error, ecosystems: _ecosystems });
+	return new SessionDiscovery({ log, warn, error, ecosystems: getEcosystems() });
 }
 
 /** Discover all session files on this machine */
@@ -221,7 +177,7 @@ function resolveModel(request: any): string {
  * Virtual DB paths are resolved to the actual DB file.
  */
 async function statSessionFile(filePath: string): Promise<fs.Stats> {
-	const eco = _ecosystems.find(e => e.handles(filePath));
+	const eco = getEcosystems().find(e => e.handles(filePath));
 	if (eco) { return eco.stat(filePath); }
 	return fs.promises.stat(filePath);
 }
@@ -322,7 +278,7 @@ export async function processSessionFile(filePath: string): Promise<SessionData 
 		}
 
 		// Dispatch to ecosystem adapters (OpenCode, Crush, VS, Continue, ClaudeDesktop, ClaudeCode, MistralVibe)
-		const eco = _ecosystems.find(e => e.handles(filePath));
+		const eco = getEcosystems().find(e => e.handles(filePath));
 		if (eco) {
 			const [tokenResult, interactions, modelUsage] = await Promise.all([
 				eco.getTokens(filePath),
@@ -567,7 +523,7 @@ export async function calculateUsageAnalysisStats(sessionFiles: string[]): Promi
 		tokenEstimators,
 		modelPricing,
 		toolNameMap,
-		ecosystems: _ecosystems,
+		ecosystems: getEcosystems(),
 	};
 
 	const now = new Date();
