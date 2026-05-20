@@ -17,7 +17,7 @@ import { MistralVibeDataAccess } from '../../vscode-extension/src/mistralvibe';
 import { GeminiCliDataAccess } from '../../vscode-extension/src/geminicli';
 import { buildAdapterRegistry } from '../../vscode-extension/src/adapters';
 import type { IEcosystemAdapter } from '../../vscode-extension/src/ecosystemAdapter';
-import { isMcpTool, extractMcpServerName } from '../../vscode-extension/src/workspaceHelpers';
+import { isMcpTool, extractMcpServerName, normalizePathForComparison } from '../../vscode-extension/src/workspaceHelpers';
 import { resolveFileUri } from '../../vscode-extension/src/workspacePathResolver';
 import { parseSessionFileContent } from '../../vscode-extension/src/sessionParser';
 import { estimateTokensFromText, getModelFromRequest, isJsonlContent, estimateTokensFromJsonlSession, calculateEstimatedCost, getModelTier } from '../../vscode-extension/src/tokenEstimation';
@@ -193,7 +193,7 @@ async function statSessionFile(filePath: string): Promise<fs.Stats> {
 
 /** Determine editor source from file path */
 function getEditorSourceFromPath(filePath: string): string {
-	const normalized = filePath.toLowerCase().replace(/\\/g, '/');
+	const normalized = normalizePathForComparison(filePath);
 	if (normalized.includes('/cursor/')) { return 'cursor'; }
 	if (normalized.includes('/code - insiders/')) { return 'vscode-insiders'; }
 	if (normalized.includes('/code - exploration/')) { return 'vscode-exploration'; }

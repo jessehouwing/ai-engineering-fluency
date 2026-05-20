@@ -12,6 +12,66 @@ import { resolveFileUri } from './workspacePathResolver';
 import { withErrorRecoverySync } from './utils/errors';
 
 
+// ── Path normalisation utilities ─────────────────────────────────────────────
+
+/**
+ * Convert backslashes to forward slashes without any case-folding.
+ * Use when you need separator-normalised paths but must preserve case
+ * (e.g. for constructing or joining paths, not matching).
+ */
+export function normalizePathSeparators(p: string): string {
+	return p.replace(/\\/g, '/');
+}
+
+/**
+ * Normalize a filesystem path for case-insensitive substring/prefix matching.
+ * Converts backslashes to forward slashes and lower-cases the result.
+ *
+ * NOTE: This always lower-cases the path, which is correct for matching on
+ * case-insensitive filesystems (Windows, macOS). On Linux it may mask case
+ * differences — callers using this for structural pattern matching (e.g.
+ * detecting editor type from a known path fragment) accept that trade-off
+ * and match the existing inline behaviour being replaced.
+ */
+export function normalizePathForComparison(p: string): string {
+	return p.replace(/\\/g, '/').toLowerCase();
+}
+
+/**
+ * Normalize a filesystem path for deduplication across adapters.
+ *
+ * On Windows and macOS the filesystem is typically case-insensitive, so two
+ * adapters that report the same file under different casings must collapse
+ * to one entry. On Linux the FS is case-sensitive so we preserve case.
+ *
+ * Backslashes are normalised to forward slashes so comparisons are
+ * platform-agnostic regardless of which adapter formatted the path.
+ *
+ * The optional `platform` parameter exists for unit testing;
+ * defaults to `process.platform`.
+ */
+export function normalizePathForDedup(p: string, platform: NodeJS.Platform = process.platform as NodeJS.Platform): string {
+	const fwd = p.replace(/\\/g, '/');
+	return platform === 'linux' ? fwd : fwd.toLowerCase();
+}
+
+/**
+ * Convert a file:// URI to a plain filesystem path.
+ *
+ * Handles Windows drive letters, Unix paths, localhost authority, and
+ * percent-encoded characters. Delegates to resolveFileUri() for security
+ * (path traversal prevention, malformed percent-encoding rejection).
+ *
+ * Non-`file://` strings are returned unchanged.
+ */
+export function fileUriToPath(uri: string): string {
+	if (!uri.startsWith('file://')) { return uri; }
+	// Normalise localhost authority: file://localhost/path → file:///path
+	const normalized = uri.replace(/^file:\/\/localhost(\/|$)/, 'file:///');
+	return resolveFileUri(normalized) ?? uri;
+}
+
+
 // ── Local type definitions ────────────────────────────────────────────────
 
 /** Represents a VS Code Copilot interaction mode object read from session data. */
@@ -882,7 +942,7 @@ function detectVSCodeVariantFromPath(lowerPath: string): string | undefined {
  *          'Gemini CLI', 'Claude Desktop Cowork', 'Crush', or 'Unknown'.
  */
 export function getEditorTypeFromPath(filePath: string, isOpenCodeSessionFile?: (p: string) => boolean): string {
-	const lowerPath = filePath.toLowerCase().replace(/\\/g, '/');
+	const lowerPath = normalizePathForComparison(filePath);
 	return detectToolEditorFromPath(filePath, lowerPath, isOpenCodeSessionFile) ??
 		detectVSCodeVariantFromPath(lowerPath) ??
 		'Unknown';
@@ -909,7 +969,7 @@ function detectIDEEditorSource(lowerPath: string): string | undefined {
  * Detect which editor the session file belongs to based on its path.
  */
 export function detectEditorSource(filePath: string, isOpenCodeSessionFile?: (p: string) => boolean): string {
-	const lowerPath = filePath.toLowerCase().replace(/\\/g, '/');
+	const lowerPath = normalizePathForComparison(filePath);
 	if (lowerPath.includes('/.copilot/jb/')) { return 'JetBrains'; }
 	if (lowerPath.includes('/.copilot/session-state/')) { return 'Copilot CLI'; }
 	if (isOpenCodeSessionFile?.(filePath)) { return 'OpenCode'; }

@@ -8,6 +8,7 @@ import * as os from 'os';
 import * as vscode from 'vscode';
 import initSqlJs from 'sql.js';
 import type { ModelUsage } from './types';
+import { normalizePathForComparison } from './workspaceHelpers';
 
 type OpenCodeDbCache = { db: any; mtimeMs: number; size: number; path: string };
 type OpenCodeModelUsageWithInteractions = {
@@ -47,7 +48,7 @@ export class OpenCodeDataAccess {
 	 * or referenced via virtual paths like opencode.db#ses_<id> (SQLite).
 	 */
 	isOpenCodeSessionFile(filePath: string): boolean {
-		const normalized = filePath.toLowerCase().replace(/\\/g, '/');
+		const normalized = normalizePathForComparison(filePath);
 		return normalized.includes('/opencode/storage/session/') || normalized.includes('/opencode/opencode.db#ses_');
 	}
 
