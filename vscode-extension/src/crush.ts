@@ -12,9 +12,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import * as vscode from 'vscode';
 import initSqlJs from 'sql.js';
 import type { ModelUsage } from './types';
+import type { UriLike } from './opencode';
 
 type CrushDbCacheEntry = { db: any; mtimeMs: number; size: number };
 
@@ -29,9 +29,9 @@ export class CrushDataAccess {
 	private _sqlJsInitPromise: Promise<any> | null = null;
 	private _dbCache: Map<string, CrushDbCacheEntry> = new Map();
 	private _dbCacheInflight: Map<string, Promise<any | null>> = new Map();
-	private readonly extensionUri: vscode.Uri;
+	private readonly extensionUri: UriLike;
 
-	constructor(extensionUri: vscode.Uri) {
+	constructor(extensionUri: UriLike) {
 		this.extensionUri = extensionUri;
 	}
 

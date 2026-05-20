@@ -77,7 +77,7 @@ function createHarness(options: HarnessOptions = {}) {
 		}
 	}
 
-	const access = new OpenCodeDataAccess(null as any);
+	const access = new OpenCodeDataAccess({ fsPath: '', path: '', scheme: 'file' });
 	(access as any).getOpenCodeDataDir = () => tmpDir;
 	(access as any).initSqlJs = async () => {
 		initCalls++;

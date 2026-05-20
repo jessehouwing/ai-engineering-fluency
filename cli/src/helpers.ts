@@ -56,8 +56,8 @@ function getEcosystems(): IEcosystemAdapter[] {
 	if (_ecosystems) { return _ecosystems; }
 	const fakeUri = vscodeStub.Uri.file(__dirname);
 	_ecosystems = buildAdapterRegistry({
-		openCode: new OpenCodeDataAccess(fakeUri as any),
-		crush: new CrushDataAccess(fakeUri as any),
+		openCode: new OpenCodeDataAccess(fakeUri),
+		crush: new CrushDataAccess(fakeUri),
 		continue_: new ContinueDataAccess(),
 		visualStudio: new VisualStudioDataAccess(),
 		claudeCode: new ClaudeCodeDataAccess(),

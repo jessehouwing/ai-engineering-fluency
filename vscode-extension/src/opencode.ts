@@ -5,10 +5,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import * as vscode from 'vscode';
 import initSqlJs from 'sql.js';
 import type { ModelUsage } from './types';
 import { normalizePathForComparison } from './workspaceHelpers';
+
+/** Minimal URI interface required by OpenCodeDataAccess (subset of vscode.Uri). */
+export interface UriLike {
+	readonly fsPath: string;
+	readonly path: string;
+	readonly scheme: string;
+}
 
 type OpenCodeDbCache = { db: any; mtimeMs: number; size: number; path: string };
 type OpenCodeModelUsageWithInteractions = {
@@ -20,9 +26,9 @@ export class OpenCodeDataAccess {
 	private _sqlJsInitPromise: Promise<any> | null = null;
 	private _dbCache: OpenCodeDbCache | null = null;
 	private _dbCacheInflight: Map<string, Promise<any | null>> = new Map();
-	private readonly extensionUri: vscode.Uri;
+	private readonly extensionUri: UriLike;
 
-	constructor(extensionUri: vscode.Uri) {
+	constructor(extensionUri: UriLike) {
 		this.extensionUri = extensionUri;
 	}
 

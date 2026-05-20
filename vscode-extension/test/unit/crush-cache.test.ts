@@ -85,7 +85,7 @@ function createHarness(options: HarnessOptions = {}) {
 		}
 	}
 
-	const access = new CrushDataAccess(null as any);
+	const access = new CrushDataAccess({ fsPath: '', path: '', scheme: 'file' });
 	(access as any).initSqlJs = async () => {
 		initCalls++;
 		if (options.delayInit) {
