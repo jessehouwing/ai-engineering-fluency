@@ -8,6 +8,7 @@ import * as path from 'path';
 import type { CustomizationFileEntry } from './types';
 import * as packageJson from '../package.json';
 import customizationPatternsData from './customizationPatterns.json';
+import { withErrorRecoverySync } from './utils/errors';
 
 
 // ── Local type definitions ────────────────────────────────────────────────
@@ -255,8 +256,11 @@ function walkDirectoryForPattern(
 	excludeDirs: string[]
 ): CustomizationFileEntry[] {
 	if (depth < 0) { return []; }
-	let children: fs.Dirent[];
-	try { children = fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
+	const children = withErrorRecoverySync(
+		() => fs.readdirSync(dir, { withFileTypes: true }),
+		[] as fs.Dirent[],
+		`walkDirectoryForPattern readdir(${dir})`
+	);
 	const results: CustomizationFileEntry[] = [];
 	for (const child of children) {
 		const childPath = path.join(dir, child.name);

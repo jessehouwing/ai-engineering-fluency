@@ -24,6 +24,7 @@ import { extractDailyFractions } from '../../vscode-extension/src/dailyAttributi
 import type { DetailedStats, PeriodStats, ModelUsage, EditorUsage, SessionFileCache, UsageAnalysisStats, UsageAnalysisPeriod, WorkspaceCustomizationMatrix } from '../../vscode-extension/src/types';
 import { analyzeSessionUsage, mergeUsageAnalysis, calculateModelSwitching, trackEnhancedMetrics } from '../../vscode-extension/src/usageAnalysis';
 import { createEmptyContextRefs } from '../../vscode-extension/src/tokenEstimation';
+import { withErrorRecovery, withErrorRecoverySync } from '../../vscode-extension/src/utils/errors';
 import * as vscodeStub from './vscode-stub';
 import { loadCache, saveCache, disableCache, getCached, setCached, getCacheStats } from './cliCache';
 
@@ -94,8 +95,12 @@ export async function buildCustomizationMatrix(sessionFiles: string[]): Promise<
 	for (const sessionFile of sessionFiles) {
 		// Claude Code session: ~/.claude/projects/<hash>/<uuid>.jsonl
 		if (sessionFile.startsWith(claudeBasePath + path.sep) || sessionFile.startsWith(claudeBasePath + '/')) {
-			try {
-				const content = await fs.promises.readFile(sessionFile, 'utf-8');
+			const content = await withErrorRecovery(
+				() => fs.promises.readFile(sessionFile, 'utf-8'),
+				null,
+				`buildCustomizationMatrix readFile(${sessionFile})`
+			);
+			if (content !== null) {
 				const lines = content.split('\n').slice(0, 30);
 				for (const line of lines) {
 					if (!line.trim()) { continue; }
@@ -107,7 +112,7 @@ export async function buildCustomizationMatrix(sessionFiles: string[]): Promise<
 						}
 					} catch { /* skip malformed lines */ }
 				}
-			} catch { /* skip unreadable files */ }
+			}
 			continue;
 		}
 
@@ -127,21 +132,26 @@ export async function buildCustomizationMatrix(sessionFiles: string[]): Promise<
 			// On Windows, file:///C:/... becomes /C:/... — strip the leading slash
 			if (/^\/[A-Za-z]:/.test(folderPath)) { folderPath = folderPath.slice(1); }
 			workspacePaths.add(folderPath);
-		} catch { /* skip unreadable workspace.json files */ }
+		} catch (err) {
+			console.error(`[buildCustomizationMatrix] Failed to read workspace.json at ${workspaceJsonPath}:`, err);
+		}
 	}
 
 	if (workspacePaths.size === 0) { return undefined; }
 
 	let workspacesWithIssues = 0;
 	for (const wsPath of workspacePaths) {
-		try {
-			const hasInstructions = fs.existsSync(path.join(wsPath, '.github', 'copilot-instructions.md'));
-			const hasAgentsMd    = fs.existsSync(path.join(wsPath, 'agents.md'));
-			const hasClaudeMd    = fs.existsSync(path.join(wsPath, 'CLAUDE.md'));
-			if (!hasInstructions && !hasAgentsMd && !hasClaudeMd) { workspacesWithIssues++; }
-		} catch {
-			workspacesWithIssues++;
-		}
+		const hasIssues = withErrorRecoverySync(
+			() => {
+				const hasInstructions = fs.existsSync(path.join(wsPath, '.github', 'copilot-instructions.md'));
+				const hasAgentsMd    = fs.existsSync(path.join(wsPath, 'agents.md'));
+				const hasClaudeMd    = fs.existsSync(path.join(wsPath, 'CLAUDE.md'));
+				return !hasInstructions && !hasAgentsMd && !hasClaudeMd;
+			},
+			true,
+			`buildCustomizationMatrix workspace check(${wsPath})`
+		);
+		if (hasIssues) { workspacesWithIssues++; }
 	}
 
 	return {
