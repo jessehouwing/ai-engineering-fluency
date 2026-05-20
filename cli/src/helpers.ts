@@ -18,6 +18,7 @@ import { GeminiCliDataAccess } from '../../vscode-extension/src/geminicli';
 import { buildAdapterRegistry } from '../../vscode-extension/src/adapters';
 import type { IEcosystemAdapter } from '../../vscode-extension/src/ecosystemAdapter';
 import { isMcpTool, extractMcpServerName } from '../../vscode-extension/src/workspaceHelpers';
+import { resolveFileUri } from '../../vscode-extension/src/workspacePathResolver';
 import { parseSessionFileContent } from '../../vscode-extension/src/sessionParser';
 import { estimateTokensFromText, getModelFromRequest, isJsonlContent, estimateTokensFromJsonlSession, calculateEstimatedCost, getModelTier } from '../../vscode-extension/src/tokenEstimation';
 import { extractDailyFractions } from '../../vscode-extension/src/dailyAttribution';
@@ -128,10 +129,8 @@ export async function buildCustomizationMatrix(sessionFiles: string[]): Promise<
 			const folderUri: string | undefined = content.folder;
 			if (!folderUri || !folderUri.startsWith('file://')) { continue; }
 
-			let folderPath = decodeURIComponent(folderUri.replace(/^file:\/\//, ''));
-			// On Windows, file:///C:/... becomes /C:/... — strip the leading slash
-			if (/^\/[A-Za-z]:/.test(folderPath)) { folderPath = folderPath.slice(1); }
-			workspacePaths.add(folderPath);
+			const folderPath = resolveFileUri(folderUri);
+			if (folderPath) { workspacePaths.add(folderPath); }
 		} catch (err) {
 			console.error(`[buildCustomizationMatrix] Failed to read workspace.json at ${workspaceJsonPath}:`, err);
 		}
