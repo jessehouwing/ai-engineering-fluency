@@ -28,16 +28,12 @@ import { createEmptyContextRefs } from '../../vscode-extension/src/tokenEstimati
 import { withErrorRecovery, withErrorRecoverySync } from '../../vscode-extension/src/utils/errors';
 import * as vscodeStub from './vscode-stub';
 import { loadCache, saveCache, disableCache, getCached, setCached, getCacheStats } from './cliCache';
+import { ENVIRONMENTAL } from './constants';
 
 // Import JSON data files
 import tokenEstimatorsData from '../../vscode-extension/src/tokenEstimators.json';
 import modelPricingData from '../../vscode-extension/src/modelPricing.json';
 import toolNamesData from '../../vscode-extension/src/toolNames.json';
-
-// Environmental impact constants (from extension.ts)
-const CO2_PER_1K_TOKENS = 0.2;           // gCO2e per 1000 tokens
-const CO2_ABSORPTION_PER_TREE_PER_YEAR = 21000; // grams CO2 per tree/year
-const WATER_USAGE_PER_1K_TOKENS = 0.3;   // liters per 1000 tokens
 
 const tokenEstimators: { [key: string]: number } = tokenEstimatorsData.estimators;
 const modelPricing = modelPricingData.pricing as { [key: string]: any };
@@ -458,9 +454,9 @@ export async function calculateDetailedStats(
 		if (period.sessions > 0) {
 			period.avgTokensPerSession = Math.round(period.tokens / period.sessions);
 		}
-		period.co2 = (period.tokens / 1000) * CO2_PER_1K_TOKENS;
-		period.treesEquivalent = period.co2 / CO2_ABSORPTION_PER_TREE_PER_YEAR;
-		period.waterUsage = (period.tokens / 1000) * WATER_USAGE_PER_1K_TOKENS;
+		period.co2 = (period.tokens / 1000) * ENVIRONMENTAL.CO2_PER_1K_TOKENS;
+		period.treesEquivalent = period.co2 / ENVIRONMENTAL.CO2_ABSORPTION_PER_TREE_PER_YEAR;
+		period.waterUsage = (period.tokens / 1000) * ENVIRONMENTAL.WATER_USAGE_PER_1K_TOKENS;
 		period.estimatedCost = calculateEstimatedCost(period.modelUsage, modelPricing);
 		period.estimatedCostCopilot = calculateEstimatedCost(period.modelUsage, modelPricing, 'copilot');
 	}
@@ -900,16 +896,7 @@ export function formatTokens(tokens: number): string {
 }
 
 /** Environmental impact constants export for use in commands */
-export const ENVIRONMENTAL = {
-	CO2_PER_1K_TOKENS,
-	CO2_ABSORPTION_PER_TREE_PER_YEAR,
-	WATER_USAGE_PER_1K_TOKENS,
-	// Context comparison constants
-	CO2_PER_KM_DRIVING: 120,          // grams CO2 per km for average car
-	CO2_PER_PHONE_CHARGE: 8.22,       // grams CO2 per smartphone full charge
-	WATER_PER_COFFEE_CUP: 140,        // liters of water per cup of coffee
-	CO2_PER_LED_HOUR: 20,             // grams CO2 per hour for 10W LED bulb
-};
+export { ENVIRONMENTAL } from './constants';
 
 /** Model pricing data export */
 export { modelPricing, tokenEstimators, toolNameMap };
