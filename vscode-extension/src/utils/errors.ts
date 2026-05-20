@@ -98,6 +98,28 @@ export function safeStringifyError(error: unknown, secretsToRedact?: string[]): 
 }
 
 /**
+ * Extracts the HTTP status code from an unknown error (e.g. Azure SDK RestError has a `statusCode` property).
+ * @param error - The error to inspect
+ * @returns The numeric status code, or undefined if not present
+ */
+export function getErrorStatusCode(error: unknown): number | undefined {
+	if (!error || typeof error !== 'object') { return undefined; }
+	const sc = (error as Record<string, unknown>)['statusCode'];
+	return typeof sc === 'number' ? sc : undefined;
+}
+
+/**
+ * Extracts the error code from an unknown error (e.g. Azure SDK errors expose a `code` string).
+ * @param error - The error to inspect
+ * @returns The code as a string or number, or undefined if not present
+ */
+export function getErrorCode(error: unknown): string | number | undefined {
+	if (!error || typeof error !== 'object') { return undefined; }
+	const code = (error as Record<string, unknown>)['code'];
+	return typeof code === 'string' || typeof code === 'number' ? code : undefined;
+}
+
+/**
  * Checks if an error is an Azure Policy "RequestDisallowedByPolicy" error.
  * @param error - The error to check
  * @returns True if this is an Azure Policy disallowed error

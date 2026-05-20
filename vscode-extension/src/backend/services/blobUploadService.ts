@@ -10,7 +10,7 @@ import * as zlib from 'zlib';
 import { promisify } from 'util';
 import type { TokenCredential } from '@azure/core-auth';
 import { BlobServiceClient, ContainerClient, StorageSharedKeyCredential } from '@azure/storage-blob';
-import { safeStringifyError } from '../../utils/errors';
+import { safeStringifyError, getErrorStatusCode, getErrorCode } from '../../utils/errors';
 
 const gzip = promisify(zlib.gzip);
 
@@ -85,7 +85,7 @@ export class BlobUploadService {
 				access: undefined // Private access by default (no public access)
 			});
 			this.log(`Blob upload: container '${containerName}' ready`);
-		} catch (error: any) {
+		} catch (error: unknown) {
 			this.warn(`Blob upload: failed to ensure container exists: ${safeStringifyError(error)}`);
 			throw error;
 		}
@@ -157,12 +157,12 @@ export class BlobUploadService {
 						settings.compressFiles
 					);
 					filesUploaded++;
-				} catch (error: any) {
+				} catch (error: unknown) {
 					const fileName = path.basename(sessionFile);
 					const errorMsg = safeStringifyError(error);
 
 					// Stop immediately on authorization errors — retrying other files won't help.
-					if (error?.statusCode === 403 || error?.code === 'AuthorizationPermissionMismatch') {
+					if (getErrorStatusCode(error) === 403 || getErrorCode(error) === 'AuthorizationPermissionMismatch') {
 						const isEntraId = !('accountName' in credential);
 						const hint = isEntraId
 							? 'Your Entra ID identity needs the "Storage Blob Data Contributor" role on this storage account. '
@@ -202,7 +202,7 @@ export class BlobUploadService {
 			this.log(`Blob upload: ${message}`);
 			return { success: errors.length === 0, filesUploaded, message };
 
-		} catch (error: any) {
+		} catch (error: unknown) {
 			const errorMsg = safeStringifyError(error);
 			this.warn(`Blob upload: failed: ${errorMsg}`);
 			// Do not update lastUploadTime on failure — allow the next sync cycle to retry.

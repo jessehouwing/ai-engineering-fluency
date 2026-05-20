@@ -1486,14 +1486,14 @@ return true;
 				if (settings.sharingServerEnabled && settings.sharingServerEndpointUrl) {
 					try {
 						await this.syncToSharingServer(settings, sharingPolicy);
-					} catch (ssErr: any) {
-						this.deps.warn(`Sharing server sync: failed - ${ssErr?.message ?? ssErr}`);
+					} catch (ssErr: unknown) {
+						this.deps.warn(`Sharing server sync: failed - ${safeStringifyError(ssErr)}`);
 					}
 				}
 
 				// DO NOT trigger UI refresh here - it causes redundant analysis and blocks UI
 				// The periodic timer in extension.ts will handle UI updates
-			} catch (e: any) {
+			} catch (e: unknown) {
 				// Keep local mode functional.
 				const secretsToRedact = await this.credentialService.getBackendSecretsToRedactForError(settings);
 				this.deps.warn(`Backend sync: ${safeStringifyError(e, secretsToRedact)}`);
@@ -1502,8 +1502,8 @@ return true;
 				if (settings.sharingServerEnabled && settings.sharingServerEndpointUrl) {
 					try {
 						await this.syncToSharingServer(settings, sharingPolicy);
-					} catch (ssErr: any) {
-						this.deps.warn(`Sharing server sync: failed - ${ssErr?.message ?? ssErr}`);
+					} catch (ssErr: unknown) {
+						this.deps.warn(`Sharing server sync: failed - ${safeStringifyError(ssErr)}`);
 					}
 				}
 			} finally {

@@ -90,9 +90,9 @@ export class AzureResourceService {
 		try {
 			await credential.getToken('https://management.azure.com/.default');
 			return true;
-		} catch (e: any) {
+		} catch (e: unknown) {
 			vscode.window.showErrorMessage(
-				`Azure authentication failed. Sign in using Azure CLI (az login) or VS Code Azure Account, then retry. Details: ${e?.message ?? e}`
+				`Azure authentication failed. Sign in using Azure CLI (az login) or VS Code Azure Account, then retry. Details: ${safeStringifyError(e)}`
 			);
 			return false;
 		}
@@ -164,9 +164,9 @@ export class AzureResourceService {
 
 		try {
 			await resourceClient.resourceGroups.createOrUpdate(name, { location: loc });
-		} catch (e: any) {
+		} catch (e: unknown) {
 			vscode.window.showErrorMessage(
-				`Failed to create resource group. You may need 'Contributor' on the subscription or appropriate RG permissions. Details: ${e?.message ?? e}`
+				`Failed to create resource group. You may need 'Contributor' on the subscription or appropriate RG permissions. Details: ${safeStringifyError(e)}`
 			);
 			return null;
 		}
@@ -252,12 +252,12 @@ export class AzureResourceService {
 		try {
 			await storageMgmt.storageAccounts.beginCreateAndWait(resourceGroup, name, createStorageAccountParams as any);
 			return name;
-		} catch (e: any) {
+		} catch (e: unknown) {
 			if (isAzurePolicyDisallowedError(e) || isStorageLocalAuthDisallowedByPolicyError(e)) {
 				return this._handlePolicyBlockedStorageCreation(e, saNames, resourceGroup);
 			}
 			vscode.window.showErrorMessage(
-				`Failed to create storage account. You may need 'Storage Account Contributor' (or 'Contributor') on the resource group. Details: ${e?.message ?? e}`
+				`Failed to create storage account. You may need 'Storage Account Contributor' (or 'Contributor') on the resource group. Details: ${safeStringifyError(e)}`
 			);
 			return null;
 		}
@@ -446,7 +446,7 @@ export class AzureResourceService {
 			}
 			await this.dataPlaneService.ensureTableExists(finalSettings, creds.tableCredential);
 			await this.dataPlaneService.validateAccess(finalSettings, creds.tableCredential);
-		} catch (e: any) {
+		} catch (e: unknown) {
 			vscode.window.showErrorMessage(`Backend sync configured, but access validation failed: ${safeStringifyError(e)}`);
 			return;
 		}
