@@ -24,6 +24,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { decode, decodeMulti } from '@msgpack/msgpack';
 import type { ModelUsage } from './types';
+import { normalizePathForComparison } from './workspaceHelpers';
 
 /** Directory names to skip during filesystem scan (heavy / non-project dirs). */
 const SCAN_SKIP_DIRS = new Set([
@@ -40,7 +41,7 @@ export class VisualStudioDataAccess {
  * Detection: normalised path contains `/.vs/`, `/copilot-chat/`, and `/sessions/`.
  */
 isVSSessionFile(filePath: string): boolean {
-	const n = filePath.replace(/\\/g, '/').toLowerCase();
+	const n = normalizePathForComparison(filePath);
 	const isVS = n.includes('/.vs/') && n.includes('/copilot-chat/') && n.includes('/sessions/');
 	const isSsms = n.includes('/ssmsgithubcopilot/') && n.includes('/copilot-chat/') && n.includes('/sessions/');
 	return isVS || isSsms;

@@ -9,6 +9,7 @@ import * as path from 'path';
 import * as os from 'os';
 import type { ModelUsage } from './types';
 import { withErrorRecoverySync } from './utils/errors';
+import { normalizePathForComparison } from './workspaceHelpers';
 
 /**
  * Normalize a Claude Code API model ID to the dot-notation format used throughout this codebase.
@@ -61,8 +62,8 @@ export class ClaudeCodeDataAccess {
 	 * false-positives on Cowork sessions that have a nested .claude/projects/ sub-path.
 	 */
 	isClaudeCodeSessionFile(filePath: string): boolean {
-		const normalized = filePath.toLowerCase().replace(/\\/g, '/');
-		const projectsDir = this.getClaudeCodeProjectsDir().toLowerCase().replace(/\\/g, '/');
+		const normalized = normalizePathForComparison(filePath);
+		const projectsDir = normalizePathForComparison(this.getClaudeCodeProjectsDir());
 		return normalized.startsWith(projectsDir) && normalized.endsWith('.jsonl');
 	}
 

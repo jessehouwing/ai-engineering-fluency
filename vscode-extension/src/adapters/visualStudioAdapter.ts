@@ -4,7 +4,7 @@ import type { ModelUsage, ChatTurn } from '../types';
 import type { IEcosystemAdapter, IDiscoverableEcosystem, IAnalyzableEcosystem, DiscoveryResult, CandidatePath, UsageAnalysisAdapterContext } from '../ecosystemAdapter';
 import { VisualStudioDataAccess } from '../visualstudio';
 import { createEmptyContextRefs } from '../tokenEstimation';
-import { isMcpTool, normalizeMcpToolName, extractMcpServerName } from '../workspaceHelpers';
+import { isMcpTool, normalizeMcpToolName, extractMcpServerName, normalizePathForComparison } from '../workspaceHelpers';
 import { createEmptySessionUsageAnalysis, applyModelTierClassification } from '../usageAnalysis';
 
 export class VisualStudioAdapter implements IEcosystemAdapter, IDiscoverableEcosystem, IAnalyzableEcosystem {
@@ -21,7 +21,7 @@ export class VisualStudioAdapter implements IEcosystemAdapter, IDiscoverableEcos
 	}
 
 	getDisplayName(sessionFile: string): string {
-		const n = sessionFile.replace(/\\/g, '/').toLowerCase();
+		const n = normalizePathForComparison(sessionFile);
 		return n.includes('/ssmsgithubcopilot/') ? 'SSMS' : 'Visual Studio';
 	}
 

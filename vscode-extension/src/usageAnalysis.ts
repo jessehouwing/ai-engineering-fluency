@@ -36,6 +36,7 @@ import {
 	isMcpTool,
 	normalizeMcpToolName,
 	extractMcpServerName,
+	normalizePathForComparison,
 } from './workspaceHelpers';
 import { isJetBrainsSessionPath } from './adapters/jetbrainsAdapter';
 import { detectJetBrainsModeFromContent, type JetBrainsMode } from './jetbrains';
@@ -838,7 +839,7 @@ export function analyzeContentReferences(contentReferences: unknown[], refs: Con
 			const fsPath = reference.fsPath || reference.path;
 			if (typeof fsPath === 'string') {
 				// Normalize path separators for pattern matching
-				const normalizedPath = fsPath.replace(/\\/g, '/').toLowerCase();
+				const normalizedPath = normalizePathForComparison(fsPath);
 
 				// Track specific patterns - these are auto-attached, not user-explicit #file refs
 				if (normalizedPath.endsWith('/.github/copilot-instructions.md') ||
@@ -916,7 +917,7 @@ export function analyzeVariableData(variableData: unknown, refs: ContextReferenc
 			const fsPath = value.fsPath || value.path || value.external;
 
 			if (typeof fsPath === 'string') {
-				const normalizedPath = fsPath.replace(/\\/g, '/').toLowerCase();
+				const normalizedPath = normalizePathForComparison(fsPath);
 
 				// Track specific patterns (but don't double-count if already in contentReferences)
 				if (normalizedPath.endsWith('/.github/copilot-instructions.md') ||
