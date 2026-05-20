@@ -18,6 +18,7 @@ import type {
 	ModelUsage,
 	UsageAnalysisPeriod,
 	ModelPricing,
+	TokenEstimator,
 } from './types';
 import {
 	applyDelta,
@@ -185,7 +186,7 @@ interface ResponseItemRaw {
 export interface UsageAnalysisDeps {
 	warn: (msg: string) => void;
 	ecosystems: IEcosystemAdapter[];
-	tokenEstimators: { [key: string]: number };
+	tokenEstimators: Record<string, TokenEstimator>;
 	modelPricing: { [key: string]: ModelPricing };
 	toolNameMap: { [key: string]: string };
 }
@@ -1656,7 +1657,7 @@ function accumulateSubAgentTokenUsage(
 	responseItems: ResponseItemRaw[],
 	baseModel: string,
 	modelUsage: ModelUsage,
-	tokenEstimators: { [key: string]: number }
+	tokenEstimators: Record<string, TokenEstimator>
 ): void {
 	for (const responseItem of responseItems) {
 		const subAgent = extractSubAgentData(responseItem);

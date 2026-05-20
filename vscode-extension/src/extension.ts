@@ -67,6 +67,7 @@ import type {
   SessionLogData,
   WorkspaceCustomizationSummary,
   AgentSessionsResult,
+  TokenEstimator,
 } from './types';
 import type { OpenCodeDataAccess } from './opencode';
 import type { CrushDataAccess } from './crush';
@@ -267,7 +268,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 	private lastChartView: 'total' | 'model' | 'editor' | 'repository' | 'cost' = 'total';
 	private lastUsageAnalysisStats: UsageAnalysisStats | undefined;
 	private lastDashboardData: any | undefined;
-	private tokenEstimators: { [key: string]: number } = tokenEstimatorsData.estimators;
+	private tokenEstimators: Record<string, TokenEstimator> = tokenEstimatorsData.estimators;
 	private co2Per1kTokens = 0.2; // gCO2e per 1000 tokens, a rough estimate
 	private co2AbsorptionPerTreePerYear = 21000; // grams of CO2 per tree per year
 	private waterUsagePer1kTokens = 0.3; // liters of water per 1000 tokens, based on data center usage estimates
