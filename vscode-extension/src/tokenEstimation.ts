@@ -114,6 +114,37 @@ export function extractSubAgentData(item: unknown): { prompt: string; result: st
 	return (prompt || result) ? { prompt, result, modelName } : null;
 }
 
+/**
+ * Extract text content from a single response item, separating thinking from regular response text.
+ * Prefers content.value over value to avoid double-counting when both are present.
+ *
+ * @returns text - the extracted text, or empty string if none
+ * @returns isThinking - true if this is a thinking (extended reasoning) item
+ */
+export function extractResponseItemText(item: unknown): { text: string; isThinking: boolean } {
+	if (typeof item !== 'object' || item === null) {
+		return { text: '', isThinking: false };
+	}
+	const obj = item as Record<string, unknown>;
+	if (obj['kind'] === 'thinking') {
+		const value = obj['value'];
+		return { text: typeof value === 'string' ? value : '', isThinking: true };
+	}
+	// Prefer content.value when present to avoid double-counting wrapper text.
+	const content = obj['content'];
+	if (typeof content === 'object' && content !== null) {
+		const contentValue = (content as Record<string, unknown>)['value'];
+		if (typeof contentValue === 'string' && contentValue) {
+			return { text: contentValue, isThinking: false };
+		}
+	}
+	const value = obj['value'];
+	if (typeof value === 'string' && value) {
+		return { text: value, isThinking: false };
+	}
+	return { text: '', isThinking: false };
+}
+
 /** Return type for all token estimation strategies. */
 export type TokenEstimationResult = {
 	tokens: number;
@@ -166,16 +197,12 @@ export class DeltaTokenStrategy implements TokenEstimationStrategy {
 				// Incremental response items (kind:2 append to response array)
 				if (event.kind === 2 && event.k?.includes('response') && Array.isArray(event.v)) {
 					for (const responseItem of event.v) {
-						if (responseItem.kind === 'thinking' && responseItem.value) {
-							totalThinkingTokens += estimateTokensFromText(responseItem.value);
-							continue;
-						}
 						// Sub-agent results are incomplete mid-stream; count from reconstructed state below.
 						if (extractSubAgentData(responseItem)) { continue; }
-						if (responseItem.value) {
-							totalTokens += estimateTokensFromText(responseItem.value);
-						} else if (responseItem.kind === 'markdownContent' && responseItem.content?.value) {
-							totalTokens += estimateTokensFromText(responseItem.content.value);
+						const { text, isThinking } = extractResponseItemText(responseItem);
+						if (text) {
+							if (isThinking) { totalThinkingTokens += estimateTokensFromText(text); }
+							else { totalTokens += estimateTokensFromText(text); }
 						}
 					}
 				}
