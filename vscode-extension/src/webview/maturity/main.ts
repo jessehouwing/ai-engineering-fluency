@@ -1,8 +1,8 @@
 // Maturity Score webview
 import { buttonHtml } from '../shared/buttonConfig';
 import type { ContextReferenceUsage } from '../shared/contextRefUtils';
-import { wireExtensionPointButtons } from '../shared/extensionPoints';
 import { escapeHtml, markdownToHtml, STAGE_LABELS, STAGE_DESCRIPTIONS } from '../shared/formatUtils';
+import { wireExtensionPointButtons } from '../shared/extensionPoints';
 import themeStyles from '../shared/theme.css';
 import styles from './styles.css';
 
@@ -171,6 +171,7 @@ function stageColor(stage: number): string {
 		default: return '#666';
 	}
 }
+
 
 // ── Demo controls ──────────────────────────────────────────────────────
 

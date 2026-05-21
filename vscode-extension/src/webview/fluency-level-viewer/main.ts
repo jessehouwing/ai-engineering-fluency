@@ -1,7 +1,7 @@
 // Fluency Level Viewer webview
 import { buttonHtml } from '../shared/buttonConfig';
+import { escapeHtml, markdownToHtml, STAGE_LABELS, STAGE_DESCRIPTIONS } from '../shared/formatUtils';
 import { wireExtensionPointButtons } from '../shared/extensionPoints';
-import { escapeHtml, markdownToHtml } from '../shared/formatUtils';
 import styles from './styles.css';
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -40,6 +40,7 @@ const vscode = acquireVsCodeApi();
 const initialData = window.__INITIAL_FLUENCY_LEVEL_DATA__;
 
 let selectedCategoryIndex = 0;
+
 
 // ── Main render ────────────────────────────────────────────────────────
 
