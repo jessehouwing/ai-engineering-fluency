@@ -18,6 +18,7 @@ import type {
 	ModelUsage,
 	UsageAnalysisPeriod,
 	ModelPricing,
+	TokenEstimator,
 } from './types';
 import {
 	applyDelta,
@@ -100,7 +101,7 @@ modelId?: string;
 }
 
 /** A parsed regular JSON session content */
-interface ParsedSessionJson {
+export interface ParsedSessionJson {
 requests?: unknown[];
 mode?: { id?: string };
 creationDate?: number;
@@ -116,6 +117,36 @@ endColumn?: number;
 }>;
 };
 selectedModel?: { metadata?: { id?: string }; identifier?: string };
+}
+
+/**
+ * Runtime type guard that validates the shape of an unknown value against ParsedSessionJson.
+ * Checks structural invariants for fields that could cause runtime errors if mistyped.
+ */
+export function isParsedSessionJson(obj: unknown): obj is ParsedSessionJson {
+	if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
+		return false;
+	}
+	const o = obj as Record<string, unknown>;
+	if (o.requests != null && !Array.isArray(o.requests)) {
+		return false;
+	}
+	if (o.mode != null) {
+		if (typeof o.mode !== 'object' || Array.isArray(o.mode)) {
+			return false;
+		}
+		const mode = o.mode as Record<string, unknown>;
+		if (mode.id != null && typeof mode.id !== 'string') {
+			return false;
+		}
+	}
+	if (o.creationDate != null && typeof o.creationDate !== 'number') {
+		return false;
+	}
+	if (o.lastMessageDate != null && typeof o.lastMessageDate !== 'number') {
+		return false;
+	}
+	return true;
 }
 
 /** A JSONL event (delta-based or CLI format) */
@@ -185,7 +216,7 @@ interface ResponseItemRaw {
 export interface UsageAnalysisDeps {
 	warn: (msg: string) => void;
 	ecosystems: IEcosystemAdapter[];
-	tokenEstimators: { [key: string]: number };
+	tokenEstimators: Record<string, TokenEstimator>;
 	modelPricing: { [key: string]: ModelPricing };
 	toolNameMap: { [key: string]: string };
 }
@@ -1091,7 +1122,12 @@ export async function calculateModelSwitching(deps: Pick<UsageAnalysisDeps, 'war
 		}
 		const isJsonl = sessionFile.endsWith('.jsonl') || isJsonlContent(fileContent);
 		if (!isJsonl) {
-			const sessionContent = (preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent) as unknown) as ParsedSessionJson;
+			const parsed: unknown = preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent);
+			if (!isParsedSessionJson(parsed)) {
+				deps.warn(`Unexpected session format in ${sessionFile}`);
+				return;
+			}
+			const sessionContent = parsed;
 			if (sessionContent.requests && Array.isArray(sessionContent.requests)) {
 				let previousModel: string | null = null;
 				let switchCount = 0;
@@ -1281,7 +1317,12 @@ export async function trackEnhancedMetrics(deps: Pick<UsageAnalysisDeps, 'warn'>
 			}
 		} else {
 			// Handle regular JSON files
-			const sessionContent = (preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent) as unknown) as ParsedSessionJson;
+			const parsed: unknown = preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent);
+			if (!isParsedSessionJson(parsed)) {
+				deps.warn(`Unexpected session format in ${sessionFile}`);
+				return;
+			}
+			const sessionContent = parsed;
 			
 			// Extract timestamps
 			if (sessionContent.creationDate) { timestamps.push(sessionContent.creationDate); }
@@ -1599,7 +1640,12 @@ export async function analyzeSessionUsage(deps: UsageAnalysisDeps, sessionFile: 
 		}
 
 		// Handle regular .json files
-		const sessionContent = (preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent) as unknown) as ParsedSessionJson;
+		const parsed: unknown = preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent);
+		if (!isParsedSessionJson(parsed)) {
+			deps.warn(`Unexpected session format in ${sessionFile}`);
+			return analysis;
+		}
+		const sessionContent = parsed;
 
 		// Process requests for mode usage, context references, and tool/MCP invocations
 		processJsonSessionRequests(deps, sessionContent, analysis);
@@ -1656,7 +1702,7 @@ function accumulateSubAgentTokenUsage(
 	responseItems: ResponseItemRaw[],
 	baseModel: string,
 	modelUsage: ModelUsage,
-	tokenEstimators: { [key: string]: number }
+	tokenEstimators: Record<string, TokenEstimator>
 ): void {
 	for (const responseItem of responseItems) {
 		const subAgent = extractSubAgentData(responseItem);
@@ -1895,7 +1941,12 @@ export async function getModelUsageFromSession(deps: Pick<UsageAnalysisDeps, 'wa
 		}
 
 		// Handle regular .json files
-		const sessionContent = (preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent) as unknown) as ParsedSessionJson;
+		const parsed: unknown = preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent);
+		if (!isParsedSessionJson(parsed)) {
+			deps.warn(`Unexpected session format in ${sessionFile}`);
+			return modelUsage;
+		}
+		const sessionContent = parsed;
 
 		if (sessionContent.requests && Array.isArray(sessionContent.requests)) {
 			for (const requestRaw of sessionContent.requests) {

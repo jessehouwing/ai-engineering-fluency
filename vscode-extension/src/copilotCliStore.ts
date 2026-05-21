@@ -42,6 +42,27 @@ export interface CliStoreTurn {
 	timestamp: string | null;
 }
 
+export function isCliStoreSession(obj: unknown): obj is CliStoreSession {
+	if (typeof obj !== 'object' || obj === null) { return false; }
+	const r = obj as Record<string, unknown>;
+	return typeof r['id'] === 'string'
+		&& (r['repository'] === null || typeof r['repository'] === 'string')
+		&& (r['branch'] === null || typeof r['branch'] === 'string')
+		&& (r['summary'] === null || typeof r['summary'] === 'string')
+		&& (r['created_at'] === null || typeof r['created_at'] === 'string')
+		&& (r['updated_at'] === null || typeof r['updated_at'] === 'string');
+}
+
+export function isCliStoreTurn(obj: unknown): obj is CliStoreTurn {
+	if (typeof obj !== 'object' || obj === null) { return false; }
+	const r = obj as Record<string, unknown>;
+	return typeof r['session_id'] === 'string'
+		&& typeof r['turn_index'] === 'number'
+		&& (r['user_message'] === null || typeof r['user_message'] === 'string')
+		&& (r['assistant_response'] === null || typeof r['assistant_response'] === 'string')
+		&& (r['timestamp'] === null || typeof r['timestamp'] === 'string');
+}
+
 export class CopilotCliStoreAccess {
 	private _sqlJsModule: SqlJsStatic | null = null;
 
@@ -138,7 +159,8 @@ export class CopilotCliStoreAccess {
 				const row = result[0].values[0];
 				const obj: Record<string, unknown> = {};
 				cols.forEach((c: string, i: number) => { obj[c] = row[i]; });
-				return obj as unknown as CliStoreSession;
+				if (!isCliStoreSession(obj)) { return null; }
+				return obj;
 			} finally {
 				db.close();
 			}
@@ -163,11 +185,15 @@ export class CopilotCliStoreAccess {
 				);
 				if (result.length === 0) { return []; }
 				const cols = result[0].columns;
-				return result[0].values.map(row => {
+				const turns: CliStoreTurn[] = [];
+				for (const row of result[0].values) {
 					const obj: Record<string, unknown> = {};
 					cols.forEach((c: string, i: number) => { obj[c] = row[i]; });
-					return obj as unknown as CliStoreTurn;
-				});
+					if (isCliStoreTurn(obj)) {
+						turns.push(obj);
+					}
+				}
+				return turns;
 			} finally {
 				db.close();
 			}

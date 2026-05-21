@@ -11,6 +11,7 @@ import {
 	getAdminUserSummaries, getAdminDailyTotals,
 	type UploadRow, type UserRow, type UserUsageSummary, type AdminDailyRow,
 } from '../db.js';
+import { OAUTH_STATE_MAX_AGE_SECONDS } from '../config.js';
 export const dashboard = new Hono();
 
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? '';
@@ -50,7 +51,7 @@ dashboard.get('/auth/github', (c) => {
 		httpOnly: true,
 		secure: process.env.NODE_ENV === 'production',
 		sameSite: 'Lax',
-		maxAge: 300, // 5 minutes
+		maxAge: OAUTH_STATE_MAX_AGE_SECONDS,
 		path: '/',
 	});
 	return c.redirect(`https://github.com/login/oauth/authorize?${params}`);
