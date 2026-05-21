@@ -1,8 +1,14 @@
 import { createHash } from 'crypto';
 import type { Context, Next } from 'hono';
 import { upsertUser, type UserRow } from './db.js';
-
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+import {
+	TOKEN_CACHE_TTL_MS,
+	NEGATIVE_CACHE_TTL_MS,
+	UPLOAD_RATE_MAX,
+	UPLOAD_RATE_WINDOW_MS,
+	IP_RATE_MAX,
+	IP_RATE_WINDOW_MS,
+} from './config.js';
 
 interface GitHubUserResponse {
 	id: number;
@@ -41,17 +47,12 @@ const tokenCache = new Map<string, CachedAuth>();
 
 // Negative cache: SHA-256(token) → bannedUntil timestamp (short TTL for bad tokens)
 const negativeCache = new Map<string, NegativeCacheEntry>();
-const NEGATIVE_TTL_MS = 60 * 1000; // 1 minute
 
 // Upload rate limiter: github_id → { count, resetAt }
 const uploadRateMap = new Map<number, { count: number; resetAt: number }>();
-const UPLOAD_RATE_MAX = 100;
-const UPLOAD_RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour per user
 
 // Pre-auth IP rate limiter: IP → { count, resetAt }
 const ipRateMap = new Map<string, { count: number; resetAt: number }>();
-const IP_RATE_MAX = 200;
-const IP_RATE_WINDOW_MS = 60 * 1000; // 1 minute per IP
 
 /**
  * Validates a GitHub Bearer token supplied by the client (e.g. the VS Code extension).
@@ -92,7 +93,7 @@ export async function validateGitHubToken(token: string): Promise<UserRow | null
 	}
 
 	if (!response.ok) {
-		negativeCache.set(cacheKey, { bannedUntil: Date.now() + NEGATIVE_TTL_MS });
+		negativeCache.set(cacheKey, { bannedUntil: Date.now() + NEGATIVE_CACHE_TTL_MS });
 		return null;
 	}
 
@@ -117,14 +118,14 @@ export async function validateGitHubToken(token: string): Promise<UserRow | null
 	if (allowedOrg) {
 		const isMember = await checkOrgMembership(token, data.login, allowedOrg);
 		if (!isMember) {
-			negativeCache.set(cacheKey, { bannedUntil: Date.now() + NEGATIVE_TTL_MS });
+			negativeCache.set(cacheKey, { bannedUntil: Date.now() + NEGATIVE_CACHE_TTL_MS });
 			return null;
 		}
 	}
 
 	const user = upsertUser(data.id, data.login, data.name, data.avatar_url);
 
-	tokenCache.set(cacheKey, { user, expiresAt: Date.now() + CACHE_TTL_MS });
+	tokenCache.set(cacheKey, { user, expiresAt: Date.now() + TOKEN_CACHE_TTL_MS });
 	return user;
 }
 

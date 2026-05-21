@@ -1,18 +1,7 @@
 import { Hono } from 'hono';
 import { requireBearerAuth, checkUploadRateLimit, type AuthVariables } from '../auth.js';
 import { upsertUpload, deleteUploadsForDays, getUploadsForUser, getDb, upsertUserFluencyScore, type UploadEntry } from '../db.js';
-
-const MAX_STRING_LENGTHS = {
-	model: 128,
-	workspaceId: 256,
-	workspaceName: 256,
-	machineId: 256,
-	machineName: 256,
-	datasetId: 128,
-	editor: 100,
-};
-const MAX_TOKEN_VALUE = 2_000_000_000; // 2B tokens — large agent sessions can exceed 100M in one day
-const MAX_ENTRIES_PER_UPLOAD = 500;
+import { MAX_STRING_LENGTHS, MAX_TOKEN_VALUE, MAX_ENTRIES_PER_UPLOAD } from '../config.js';
 
 export const api = new Hono<{ Variables: AuthVariables }>();
 
