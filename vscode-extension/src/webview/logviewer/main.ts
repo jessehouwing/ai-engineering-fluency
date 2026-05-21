@@ -6,6 +6,7 @@ import type { McpToolUsage, ModeUsage, ToolCallUsage } from '../shared/types';
 // CSS imported as text via esbuild
 import themeStyles from '../shared/theme.css';
 import styles from './styles.css';
+import { getWindowData } from '../shared/dataLoader';
 
 // ── Type definitions ──────────────────────────────────────────────────────────
 
@@ -142,7 +143,7 @@ interface Window { __INITIAL_LOGDATA__?: SessionLogData; }
 }
 
 const vscode = acquireVsCodeApi();
-const initialData = window.__INITIAL_LOGDATA__;
+const initialData = getWindowData<SessionLogData>('__INITIAL_LOGDATA__');
 
 import toolNames from '../../toolNames.json';
 

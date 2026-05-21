@@ -3,6 +3,7 @@ import { buttonHtml } from '../shared/buttonConfig';
 import { escapeHtml, markdownToHtml, STAGE_LABELS, STAGE_DESCRIPTIONS } from '../shared/formatUtils';
 import { wireExtensionPointButtons } from '../shared/extensionPoints';
 import styles from './styles.css';
+import { getWindowData } from '../shared/dataLoader';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -32,12 +33,8 @@ declare function acquireVsCodeApi<TState = unknown>(): {
 	getState: () => TState | undefined;
 };
 
-declare global {
-	interface Window { __INITIAL_FLUENCY_LEVEL_DATA__?: FluencyLevelData; }
-}
-
 const vscode = acquireVsCodeApi();
-const initialData = window.__INITIAL_FLUENCY_LEVEL_DATA__;
+const initialData = getWindowData<FluencyLevelData>('__INITIAL_FLUENCY_LEVEL_DATA__');
 
 let selectedCategoryIndex = 0;
 

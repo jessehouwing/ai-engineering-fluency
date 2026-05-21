@@ -8,6 +8,7 @@ import type { McpToolUsage, ModeUsage, ModelSwitchingAnalysis as BaseModelSwitch
 // CSS imported as text via esbuild
 import themeStyles from '../shared/theme.css';
 import styles from './styles.css';
+import { getWindowData } from '../shared/dataLoader';
 import { registerMessageHandler } from '../shared/messageHandler';
 
 type ModelSwitchingAnalysis = BaseModelSwitchingAnalysis & {
@@ -106,15 +107,6 @@ interface MissedPotentialWorkspace {
 	nonCopilotFiles: CustomizationFileEntry[];
 }
 
-declare global {
-	interface Window { 
-		__INITIAL_USAGE__?: UsageAnalysisStats & { 
-			customizationMatrix?: WorkspaceCustomizationMatrix | null;
-			missedPotential?: MissedPotentialWorkspace[];
-		} 
-	}
-}
-
 /** Shape of hygiene check items returned by the extension host. */
 interface RepoHygieneCheck {
 	readonly id?: string;
@@ -148,14 +140,14 @@ interface RepoAnalysisData {
 	checks?: RepoHygieneCheck[];
 	recommendations?: RepoHygieneRecommendation[];
 }
-
 interface RepoAnalysisRecord {
 	data?: RepoAnalysisData;
 	error?: string;
 }
 
 const vscode = acquireVsCodeApi();
-const initialData = window.__INITIAL_USAGE__;
+type InitialUsageData = UsageAnalysisStats & { customizationMatrix?: WorkspaceCustomizationMatrix | null; missedPotential?: MissedPotentialWorkspace[] };
+const initialData = getWindowData<InitialUsageData>('__INITIAL_USAGE__');
 let hygieneMatrixState: WorkspaceCustomizationMatrix | null = null;
 const repoAnalysisState = new Map<string, RepoAnalysisRecord>();
 let selectedRepoPath: string | null = null;
@@ -478,7 +470,7 @@ container.appendChild(div);
 }
 
 function renderMissedPotential(stats: UsageAnalysisStats): string {
-	const missed = stats.missedPotential || window.__INITIAL_USAGE__?.missedPotential || [];
+	const missed = stats.missedPotential || initialData?.missedPotential || [];
 	if (missed.length === 0) {
 		return `
 			<div style="margin-top: 16px; margin-bottom: 16px; padding: 12px; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 6px;">
@@ -1181,7 +1173,7 @@ function renderLayout(stats: UsageAnalysisStats): void {
 	type StatsWithMatrix = UsageAnalysisStats & { customizationMatrix?: WorkspaceCustomizationMatrix | null };
 	const matrix =
 		(stats as StatsWithMatrix).customizationMatrix ??
-		(window.__INITIAL_USAGE__ as StatsWithMatrix | undefined)?.customizationMatrix ?? null;
+		(initialData as StatsWithMatrix | undefined)?.customizationMatrix ?? null;
 	hygieneMatrixState = matrix ?? null;
 	if (!hygieneMatrixState || hygieneMatrixState.workspaces.length === 0) {
 		selectedRepoPath = null;

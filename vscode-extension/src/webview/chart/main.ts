@@ -8,6 +8,7 @@ import { createViewStateManager } from '../shared/viewState';
 // CSS imported as text via esbuild
 import themeStyles from '../shared/theme.css';
 import styles from './styles.css';
+import { getWindowData } from '../shared/dataLoader';
 import { registerMessageHandler } from '../shared/messageHandler';
 
 type ChartModule = typeof import('chart.js/auto');
@@ -72,12 +73,8 @@ declare function acquireVsCodeApi<TState = unknown>(): {
 
 type VSCodeApi = ReturnType<typeof acquireVsCodeApi>;
 
-declare global {
-	interface Window { __INITIAL_CHART__?: InitialChartData; }
-}
-
 const vscode: VSCodeApi = acquireVsCodeApi();
-const initialData = window.__INITIAL_CHART__;
+const initialData = getWindowData<InitialChartData>('__INITIAL_CHART__');
 
 let chart: ChartInstance | undefined;
 let Chart: ChartConstructor | undefined;

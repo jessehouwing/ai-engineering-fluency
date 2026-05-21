@@ -6,6 +6,7 @@ import { wireExtensionPointButtons } from '../shared/extensionPoints';
 import type { McpToolUsage, ModeUsage, ModelSwitchingAnalysis, ToolCallUsage } from '../shared/types';
 import themeStyles from '../shared/theme.css';
 import styles from './styles.css';
+import { getWindowData } from '../shared/dataLoader';
 
 type UsageAnalysisPeriod = {
 	sessions: number;
@@ -55,12 +56,8 @@ declare function acquireVsCodeApi<TState = unknown>(): {
 	getState: () => TState | undefined;
 };
 
-declare global {
-	interface Window { __INITIAL_MATURITY__?: MaturityData; }
-}
-
 const vscode = acquireVsCodeApi();
-const initialData = window.__INITIAL_MATURITY__;
+const initialData = getWindowData<MaturityData>('__INITIAL_MATURITY__');
 
 // ── Demo mode state ─────────────────────────────────────────────────────
 
