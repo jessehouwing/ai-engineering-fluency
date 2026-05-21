@@ -4,6 +4,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { discoverSessionFiles, calculateUsageAnalysisStats, fmt, buildCustomizationMatrix } from '../helpers';
+import { clearLine, writeProgress } from '../formatting';
 import { calculateMaturityScores } from '../../../vscode-extension/src/maturityScoring';
 import { shouldOutputJson } from '../commandUtils';
 
@@ -17,9 +18,9 @@ export const fluencyCommand = new Command('fluency')
 			console.log(chalk.bold.cyan('\n🎯 Copilot Token Tracker - Fluency Score\n'));
 		}
 
-		if (!json) { process.stdout.write(chalk.dim('Scanning for session files...')); }
+		if (!json) { writeProgress('Scanning for session files...'); }
 		const files = await discoverSessionFiles();
-		if (!json) { process.stdout.write('\r' + ' '.repeat(50) + '\r'); }
+		if (!json) { clearLine(); }
 
 		if (files.length === 0) {
 			if (json) {
@@ -30,11 +31,11 @@ export const fluencyCommand = new Command('fluency')
 			return;
 		}
 
-		if (!json) { process.stdout.write(chalk.dim('Analyzing usage patterns...')); }
+		if (!json) { writeProgress('Analyzing usage patterns...'); }
 
 		// Calculate usage analysis stats
 		const usageStats = await calculateUsageAnalysisStats(files);
-		if (!json) { process.stdout.write('\r' + ' '.repeat(50) + '\r'); }
+		if (!json) { clearLine(); }
 
 		// Build a customization matrix from workspace folder paths inferred from session file paths.
 		// This matches what the VS Code extension does (scanning workspace folders for instructions files).

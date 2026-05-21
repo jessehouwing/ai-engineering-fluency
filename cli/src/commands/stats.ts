@@ -4,6 +4,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { discoverSessionFiles, processSessionFile, effectiveTokens, getDiagnosticPaths, fmt, formatTokens, getCacheStats } from '../helpers';
+import { clearLine, writeProgress, writeProgressCount } from '../formatting';
 import { shouldOutputJson } from '../commandUtils';
 
 export const statsCommand = new Command('stats')
@@ -28,9 +29,9 @@ export const statsCommand = new Command('stats')
 		}
 
 		// Discover session files
-		if (!json) { process.stdout.write(chalk.dim('Scanning for session files...')); }
+		if (!json) { writeProgress('Scanning for session files...'); }
 		const files = await discoverSessionFiles();
-		if (!json) { process.stdout.write('\r' + ' '.repeat(50) + '\r'); }
+		if (!json) { clearLine(); }
 
 		if (files.length === 0) {
 			if (json) {
@@ -88,10 +89,10 @@ export const statsCommand = new Command('stats')
 
 			// Progress indicator (human-readable only)
 			if (!json && ((i + 1) % 50 === 0 || i === files.length - 1)) {
-				process.stdout.write(`\r${chalk.dim(`Processing: ${i + 1}/${files.length}`)}`);
+				writeProgressCount(i + 1, files.length);
 			}
 		}
-		if (!json) { process.stdout.write('\r' + ' '.repeat(50) + '\r'); }
+		if (!json) { clearLine(); }
 
 		if (json) {
 			// Machine-readable output: emit pure JSON to stdout and exit
