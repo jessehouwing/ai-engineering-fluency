@@ -40,14 +40,6 @@ export function getJetBrainsSessionDir(): string {
 	return path.join(os.homedir(), '.copilot', 'jb');
 }
 
-/**
- * Path predicate matching JetBrains partition files under ~/.copilot/jb/.
- * Matches paths containing /.copilot/jb/ that end with /partition-{n}.jsonl.
- */
-export function isJetBrainsSessionPath(filePath: string): boolean {
-	const norm = normalizePath(filePath);
-	return norm.includes('/.copilot/jb/') && /\/partition-\d+\.jsonl$/.test(norm);
-}
 
 export class JetBrainsAdapter implements IEcosystemAdapter, IDiscoverableEcosystem {
 	readonly id = 'jetbrains';
