@@ -11,6 +11,7 @@ import {
     analyzeSessionUsage,
     getModelUsageFromSession,
     deriveConversationPatterns,
+    isParsedSessionJson,
     type UsageAnalysisDeps,
 } from '../../src/usageAnalysis';
 import type {
@@ -966,3 +967,75 @@ test('analyzeSessionUsage: empty requests array returns empty analysis', async (
     assert.equal(result.toolCalls.total, 0);
 });
 
+// ---------------------------------------------------------------------------
+// isParsedSessionJson
+// ---------------------------------------------------------------------------
+
+test('isParsedSessionJson: null returns false', () => {
+    assert.equal(isParsedSessionJson(null), false);
+});
+
+test('isParsedSessionJson: string returns false', () => {
+    assert.equal(isParsedSessionJson('{"requests":[]}'), false);
+});
+
+test('isParsedSessionJson: number returns false', () => {
+    assert.equal(isParsedSessionJson(42), false);
+});
+
+test('isParsedSessionJson: array returns false', () => {
+    assert.equal(isParsedSessionJson([{ requests: [] }]), false);
+});
+
+test('isParsedSessionJson: empty object returns true', () => {
+    assert.equal(isParsedSessionJson({}), true);
+});
+
+test('isParsedSessionJson: valid session with requests array returns true', () => {
+    assert.equal(isParsedSessionJson({ requests: [] }), true);
+});
+
+test('isParsedSessionJson: requests as non-array (string) returns false', () => {
+    assert.equal(isParsedSessionJson({ requests: 'not-an-array' }), false);
+});
+
+test('isParsedSessionJson: requests as non-array (number) returns false', () => {
+    assert.equal(isParsedSessionJson({ requests: 42 }), false);
+});
+
+test('isParsedSessionJson: creationDate as string returns false', () => {
+    assert.equal(isParsedSessionJson({ creationDate: '2024-01-01' }), false);
+});
+
+test('isParsedSessionJson: creationDate as number returns true', () => {
+    assert.equal(isParsedSessionJson({ creationDate: 1700000000000 }), true);
+});
+
+test('isParsedSessionJson: lastMessageDate as string returns false', () => {
+    assert.equal(isParsedSessionJson({ lastMessageDate: 'now' }), false);
+});
+
+test('isParsedSessionJson: mode as non-object (string) returns false', () => {
+    assert.equal(isParsedSessionJson({ mode: 'agent' }), false);
+});
+
+test('isParsedSessionJson: mode as array returns false', () => {
+    assert.equal(isParsedSessionJson({ mode: [] }), false);
+});
+
+test('isParsedSessionJson: mode as object returns true', () => {
+    assert.equal(isParsedSessionJson({ mode: { id: 'copilot.agentMode' } }), true);
+});
+
+test('isParsedSessionJson: mode with numeric id returns false', () => {
+    assert.equal(isParsedSessionJson({ mode: { id: 123 } }), false);
+});
+
+test('isParsedSessionJson: full valid session object returns true', () => {
+    assert.equal(isParsedSessionJson({
+        requests: [{ modelId: 'gpt-4o' }],
+        mode: { id: 'copilot.askMode' },
+        creationDate: 1700000000000,
+        lastMessageDate: 1700000060000,
+    }), true);
+});
