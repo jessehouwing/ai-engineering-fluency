@@ -4,7 +4,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { discoverSessionFiles, calculateUsageAnalysisStats, fmt, buildCustomizationMatrix } from '../helpers';
-import { clearLine, writeProgress } from '../formatting';
+import { ProgressTracker } from '../progress';
 import { calculateMaturityScores } from '../../../vscode-extension/src/maturityScoring';
 import { shouldOutputJson } from '../commandUtils';
 
@@ -18,9 +18,10 @@ export const fluencyCommand = new Command('fluency')
 			console.log(chalk.bold.cyan('\n🎯 Copilot Token Tracker - Fluency Score\n'));
 		}
 
-		if (!json) { writeProgress('Scanning for session files...'); }
+		const progress = new ProgressTracker(json);
+		progress.show('Scanning for session files...');
 		const files = await discoverSessionFiles();
-		if (!json) { clearLine(); }
+		progress.done();
 
 		if (files.length === 0) {
 			if (json) {
@@ -31,11 +32,11 @@ export const fluencyCommand = new Command('fluency')
 			return;
 		}
 
-		if (!json) { writeProgress('Analyzing usage patterns...'); }
+		progress.show('Analyzing usage patterns...');
 
 		// Calculate usage analysis stats
 		const usageStats = await calculateUsageAnalysisStats(files);
-		if (!json) { clearLine(); }
+		progress.done();
 
 		// Build a customization matrix from workspace folder paths inferred from session file paths.
 		// This matches what the VS Code extension does (scanning workspace folders for instructions files).

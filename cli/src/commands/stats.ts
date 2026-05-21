@@ -4,7 +4,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { discoverSessionFiles, processSessionFile, effectiveTokens, getDiagnosticPaths, fmt, formatTokens, getCacheStats } from '../helpers';
-import { clearLine, writeProgress, writeProgressCount } from '../formatting';
+import { ProgressTracker } from '../progress';
 import { shouldOutputJson } from '../commandUtils';
 
 export const statsCommand = new Command('stats')
@@ -29,9 +29,10 @@ export const statsCommand = new Command('stats')
 		}
 
 		// Discover session files
-		if (!json) { writeProgress('Scanning for session files...'); }
+		const progress = new ProgressTracker(json);
+		progress.show('Scanning for session files...');
 		const files = await discoverSessionFiles();
-		if (!json) { clearLine(); }
+		progress.done();
 
 		if (files.length === 0) {
 			if (json) {
@@ -88,11 +89,11 @@ export const statsCommand = new Command('stats')
 			}
 
 			// Progress indicator (human-readable only)
-			if (!json && ((i + 1) % 50 === 0 || i === files.length - 1)) {
-				writeProgressCount(i + 1, files.length);
+		if ((i + 1) % 50 === 0 || i === files.length - 1) {
+				progress.update(`Processing: ${i + 1}/${files.length}`);
 			}
 		}
-		if (!json) { clearLine(); }
+		progress.done();
 
 		if (json) {
 			// Machine-readable output: emit pure JSON to stdout and exit
