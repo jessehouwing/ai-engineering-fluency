@@ -43,6 +43,7 @@ function matchToCandidatePath(
 
 /** Truncate a path for display, keeping the last N segments */
 function truncatePath(p: string, maxLen = 55): string {
+	if (!p) { return ''; }
 	if (p.length <= maxLen) { return p; }
 	const parts = p.replace(/\\/g, '/').split('/');
 	let result = p;
@@ -55,6 +56,10 @@ function truncatePath(p: string, maxLen = 55): string {
 
 /** Print a simple aligned table to stdout */
 function printTable(headers: string[], rows: string[][], colWidths: number[]): void {
+	if (!headers || !rows || !colWidths) { return; }
+	if (headers.length !== colWidths.length) {
+		throw new Error(`printTable: headers.length (${headers.length}) !== colWidths.length (${colWidths.length})`);
+	}
 	const sep = chalk.dim('─'.repeat(colWidths.reduce((a, b) => a + b + 3, -1)));
 
 	// Header

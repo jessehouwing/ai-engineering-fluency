@@ -98,6 +98,28 @@ export function safeStringifyError(error: unknown, secretsToRedact?: string[]): 
 }
 
 /**
+ * Extracts the HTTP status code from an unknown error (e.g. Azure SDK RestError has a `statusCode` property).
+ * @param error - The error to inspect
+ * @returns The numeric status code, or undefined if not present
+ */
+export function getErrorStatusCode(error: unknown): number | undefined {
+	if (!error || typeof error !== 'object') { return undefined; }
+	const sc = (error as Record<string, unknown>)['statusCode'];
+	return typeof sc === 'number' ? sc : undefined;
+}
+
+/**
+ * Extracts the error code from an unknown error (e.g. Azure SDK errors expose a `code` string).
+ * @param error - The error to inspect
+ * @returns The code as a string or number, or undefined if not present
+ */
+export function getErrorCode(error: unknown): string | number | undefined {
+	if (!error || typeof error !== 'object') { return undefined; }
+	const code = (error as Record<string, unknown>)['code'];
+	return typeof code === 'string' || typeof code === 'number' ? code : undefined;
+}
+
+/**
  * Checks if an error is an Azure Policy "RequestDisallowedByPolicy" error.
  * @param error - The error to check
  * @returns True if this is an Azure Policy disallowed error
@@ -179,5 +201,37 @@ export async function withErrorRecovery<T>(fn: () => T | Promise<T>, fallback: T
 	} catch (err) {
 		console.error(`[recovery] ${context ?? 'unknown'}:`, err);
 		return fallback;
+	}
+}
+
+/**
+ * Discriminated union returned by the Result variants of the recovery helpers.
+ * Callers can branch on `ok` to handle errors explicitly without needing a fallback value.
+ */
+export type Result<T> = { ok: true; value: T } | { ok: false; error: unknown };
+
+/**
+ * Like withErrorRecoverySync but returns a Result instead of requiring a fallback.
+ * Logs the error (same as the fallback variant) so failures remain visible.
+ */
+export function withErrorRecoverySyncResult<T>(fn: () => T, context?: string): Result<T> {
+	try {
+		return { ok: true, value: fn() };
+	} catch (err) {
+		console.error(`[recovery] ${context ?? 'unknown'}:`, err);
+		return { ok: false, error: err };
+	}
+}
+
+/**
+ * Like withErrorRecovery but returns a Result instead of requiring a fallback.
+ * Logs the error (same as the fallback variant) so failures remain visible.
+ */
+export async function withErrorRecoveryResult<T>(fn: () => T | Promise<T>, context?: string): Promise<Result<T>> {
+	try {
+		return { ok: true, value: await fn() };
+	} catch (err) {
+		console.error(`[recovery] ${context ?? 'unknown'}:`, err);
+		return { ok: false, error: err };
 	}
 }

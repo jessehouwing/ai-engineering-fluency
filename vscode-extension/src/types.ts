@@ -3,6 +3,13 @@
  * Extracted from extension.ts to reduce file size and improve reusability.
  */
 
+/**
+ * Character-to-token ratio for a specific AI model.
+ * The value is a multiplier applied to the character count to estimate token count
+ * (e.g. 0.25 means ~4 characters per token).
+ */
+export type TokenEstimator = number;
+
 export interface TokenUsageStats {
   todayTokens: number;
   monthTokens: number;

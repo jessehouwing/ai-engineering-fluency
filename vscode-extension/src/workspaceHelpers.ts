@@ -9,67 +9,24 @@ import type { CustomizationFileEntry } from './types';
 import * as packageJson from '../package.json';
 import customizationPatternsData from './customizationPatterns.json';
 import { resolveFileUri } from './workspacePathResolver';
+import {
+	fileUriToPath,
+	hasWindowsDriveSegment,
+	normalizePath,
+	normalizePathForComparison,
+	normalizePathForDedup,
+	splitNormalizedPath,
+	stripWindowsDriveUriPrefix,
+	toPlatformPath
+} from './utils/pathUtils';
 import { withErrorRecoverySync } from './utils/errors';
 
-
-// ── Path normalisation utilities ─────────────────────────────────────────────
-
-/**
- * Convert backslashes to forward slashes without any case-folding.
- * Use when you need separator-normalised paths but must preserve case
- * (e.g. for constructing or joining paths, not matching).
- */
-export function normalizePathSeparators(p: string): string {
-	return p.replace(/\\/g, '/');
-}
-
-/**
- * Normalize a filesystem path for case-insensitive substring/prefix matching.
- * Converts backslashes to forward slashes and lower-cases the result.
- *
- * NOTE: This always lower-cases the path, which is correct for matching on
- * case-insensitive filesystems (Windows, macOS). On Linux it may mask case
- * differences — callers using this for structural pattern matching (e.g.
- * detecting editor type from a known path fragment) accept that trade-off
- * and match the existing inline behaviour being replaced.
- */
-export function normalizePathForComparison(p: string): string {
-	return p.replace(/\\/g, '/').toLowerCase();
-}
-
-/**
- * Normalize a filesystem path for deduplication across adapters.
- *
- * On Windows and macOS the filesystem is typically case-insensitive, so two
- * adapters that report the same file under different casings must collapse
- * to one entry. On Linux the FS is case-sensitive so we preserve case.
- *
- * Backslashes are normalised to forward slashes so comparisons are
- * platform-agnostic regardless of which adapter formatted the path.
- *
- * The optional `platform` parameter exists for unit testing;
- * defaults to `process.platform`.
- */
-export function normalizePathForDedup(p: string, platform: NodeJS.Platform = process.platform as NodeJS.Platform): string {
-	const fwd = p.replace(/\\/g, '/');
-	return platform === 'linux' ? fwd : fwd.toLowerCase();
-}
-
-/**
- * Convert a file:// URI to a plain filesystem path.
- *
- * Handles Windows drive letters, Unix paths, localhost authority, and
- * percent-encoded characters. Delegates to resolveFileUri() for security
- * (path traversal prevention, malformed percent-encoding rejection).
- *
- * Non-`file://` strings are returned unchanged.
- */
-export function fileUriToPath(uri: string): string {
-	if (!uri.startsWith('file://')) { return uri; }
-	// Normalise localhost authority: file://localhost/path → file:///path
-	const normalized = uri.replace(/^file:\/\/localhost(\/|$)/, 'file:///');
-	return resolveFileUri(normalized) ?? uri;
-}
+export {
+	fileUriToPath,
+	normalizePathForComparison,
+	normalizePathForDedup,
+	normalizePathSeparators
+} from './utils/pathUtils';
 
 
 // ── Local type definitions ────────────────────────────────────────────────
@@ -152,8 +109,7 @@ export function parseWorkspaceStorageJsonFile(jsonPath: string, candidateKeys: s
  */
 export function extractWorkspaceIdFromSessionPath(sessionFilePath: string): string | undefined {
 	try {
-		const normalized = sessionFilePath.replace(/\\/g, '/');
-		const parts = normalized.split('/').filter(p => p.length > 0);
+		const parts = splitNormalizedPath(sessionFilePath);
 		const idx = parts.findIndex(p => p.toLowerCase() === 'workspacestorage');
 		if (idx === -1 || idx + 1 >= parts.length) {
 			return undefined; // Not a workspace-scoped session file
@@ -170,7 +126,7 @@ export function extractWorkspaceIdFromSessionPath(sessionFilePath: string): stri
  */
 export function globToRegExp(glob: string, caseInsensitive: boolean = false): RegExp {
 	// Normalize to posix-style
-	let pattern = glob.replace(/\\/g, '/');
+	let pattern = normalizePath(glob);
 	// Escape regex special chars
 	pattern = pattern.replace(/([.+^=!:${}()|[\]\\])/g, '\\$1');
 	// Replace /**/ or ** with placeholder
@@ -223,7 +179,7 @@ export function resolveExactWorkspacePath(workspaceFolderPath: string, relativeP
 	}
 	if (fs.existsSync(directPath)) { return directPath; }
 
-	const segments = relativePattern.replace(/\\/g, '/').split('/').filter(seg => seg.length > 0 && seg !== '.');
+	const segments = splitNormalizedPath(relativePattern).filter(seg => seg !== '.');
 	let current = workspaceFolderPath;
 	for (let index = 0; index < segments.length; index++) {
 		const resolved = resolvePathSegment(current, segments[index], index === segments.length - 1);
@@ -253,7 +209,7 @@ function buildCustomizationEntry(
 	const name = displayName ?? path.basename(absPath);
 	return {
 		path: absPath,
-		relativePath: path.relative(workspaceFolderPath, absPath).replace(/\\/g, '/'),
+		relativePath: normalizePath(path.relative(workspaceFolderPath, absPath)),
 		type: pattern.type ?? 'unknown',
 		icon: pattern.icon ?? '',
 		label: pattern.label ?? name,
@@ -275,7 +231,7 @@ function scanExactPattern(ctx: PatternScanContext): CustomizationFileEntry | und
 /** Handle `scanMode: "oneLevel"` — enumerate one directory level for wildcard matches. */
 function scanOneLevelPattern(ctx: PatternScanContext, excludeDirs: string[]): CustomizationFileEntry[] {
 	const { workspaceFolderPath, pattern, stalenessDays } = ctx;
-	const normalizedPattern = pattern.path.replace(/\\/g, '/');
+	const normalizedPattern = normalizePath(pattern.path);
 	const starIndex = normalizedPattern.indexOf('*');
 	if (starIndex === -1) { return []; }
 
@@ -323,7 +279,7 @@ function walkDirectoryForPattern(
 		if (child.isDirectory() && !excludeDirs.includes(child.name)) {
 			results.push(...walkDirectoryForPattern(childPath, depth - 1, ctx, regex, excludeDirs));
 		} else if (child.isFile()) {
-			const rel = path.relative(ctx.workspaceFolderPath, childPath).replace(/\\/g, '/');
+			const rel = normalizePath(path.relative(ctx.workspaceFolderPath, childPath));
 			if (regex.test(rel)) {
 				results.push(buildCustomizationEntry(ctx, childPath));
 			}
@@ -466,7 +422,7 @@ export function extractCustomAgentName(modeId: string): string | null {
 
 /** Returns true when the root folder belongs to a JetBrains IDE Copilot store. */
 function isJetBrainsRoot(lower: string): boolean {
-	return lower.includes('.copilot/jb') || lower.includes('.copilot\\jb');
+	return lower.includes('.copilot/jb');
 }
 
 /** Returns true when the root folder belongs to Copilot CLI. */
@@ -491,7 +447,7 @@ function isVisualStudioRoot(lower: string): boolean {
 
 /** Returns true when the root folder belongs to VS Code. */
 function isVSCodeRoot(lower: string): boolean {
-	return lower.endsWith('code') || lower.includes(path.sep + 'code' + path.sep) || lower.includes('/code/');
+	return lower.endsWith('code') || lower.includes('/code/');
 }
 
 /**
@@ -500,7 +456,7 @@ function isVSCodeRoot(lower: string): boolean {
  */
 export function getEditorNameFromRoot(rootPath: string): string {
 	if (!rootPath) { return 'Unknown'; }
-	const lower = rootPath.toLowerCase();
+	const lower = normalizePathForComparison(rootPath);
 	// Check obvious markers first (JetBrains must precede Copilot CLI)
 	if (isJetBrainsRoot(lower)) { return 'JetBrains'; }
 	if (isCopilotCliRoot(lower)) { return 'Copilot CLI'; }
@@ -669,10 +625,7 @@ export function extractMcpServerName(toolName: string, toolNameMap: { [key: stri
  * VS Code URI paths on Windows start with "/c:/..." and need the leading slash removed.
  */
 function normalizeWindowsUriPath(rawPath: string): string {
-	if (process.platform === 'win32' && /^\/[a-zA-Z]:/.test(rawPath)) {
-		return rawPath.substring(1);
-	}
-	return rawPath;
+	return stripWindowsDriveUriPrefix(rawPath);
 }
 
 /**
@@ -702,9 +655,8 @@ function collectFilePathsFromRefs(contentReferences: ContentReferenceItem[]): st
  * Returns paths ordered from deepest to shallowest.
  */
 function buildPotentialGitRoots(filePath: string): string[] {
-	const normalizedPath = filePath.replace(/\\/g, '/');
-	const pathParts = normalizedPath.split('/').filter(p => p.length > 0);
-	const isWindowsDrive = process.platform === 'win32' && /^[a-zA-Z]:$/.test(pathParts[0] ?? '');
+	const pathParts = splitNormalizedPath(filePath);
+	const isWindowsDrive = hasWindowsDriveSegment(pathParts[0]);
 	const roots: string[] = [];
 	for (let i = pathParts.length - 1; i >= 1; i--) {
 		let potentialRoot = pathParts.slice(0, i).join('/');
@@ -742,7 +694,7 @@ async function tryReadWorktreeGitRemote(potentialRoot: string): Promise<string |
 		const match = gitFileContent.match(/^gitdir:\s*(.+)$/m);
 		if (!match) { return undefined; }
 		const gitdirPath = match[1].trim();
-		const basePath = potentialRoot.replace(/\//g, path.sep);
+		const basePath = toPlatformPath(potentialRoot);
 		const resolvedGitdir = path.isAbsolute(gitdirPath)
 			? gitdirPath
 			: path.resolve(basePath, gitdirPath);
@@ -785,8 +737,8 @@ export async function extractRepositoryFromContentReferences(contentReferences: 
 export function resolveWorkspaceFolderFromSessionPath(sessionFilePath: string, workspaceIdToFolderCache: Map<string, string | undefined>): string | undefined {
 	try {
 		// Normalize and split path into segments
-		const normalized = sessionFilePath.replace(/\\/g, '/');
-		const parts = normalized.split('/').filter(p => p.length > 0);
+		const normalized = normalizePath(sessionFilePath);
+		const parts = splitNormalizedPath(sessionFilePath);
 		const idx = parts.findIndex(p => p.toLowerCase() === 'workspacestorage');
 		if (idx === -1 || idx + 1 >= parts.length) {
 			return undefined; // Not a workspace-scoped session file
@@ -844,7 +796,7 @@ export function resolveWorkspaceFolderFromSessionPath(sessionFilePath: string, w
 	} catch (err) {
 		// On any error, cache undefined to avoid repeated failures
 		try {
-			const parts = sessionFilePath.replace(/\\/g, '/').split('/').filter(p => p.length > 0);
+			const parts = splitNormalizedPath(sessionFilePath);
 			const idx = parts.findIndex(p => p.toLowerCase() === 'workspacestorage');
 			if (idx !== -1 && idx + 1 < parts.length) {
 				workspaceIdToFolderCache.set(parts[idx + 1], undefined);

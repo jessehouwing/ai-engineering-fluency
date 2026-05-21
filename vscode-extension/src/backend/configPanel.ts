@@ -381,7 +381,7 @@ function buildScriptHtml(nonce: string, toolkitUri: string, initialState: string
 	return `	<script type="module" nonce="${nonce}">
 		// Register toolkit components before main script runs
 		try {
-			const { provideVSCodeDesignSystem, vsCodeButton, vsCodeBadge } = await import('${toolkitUri}');
+			const { provideVSCodeDesignSystem, vsCodeButton, vsCodeBadge } = await import(${safeJsonForInlineScript(toolkitUri)});
 			provideVSCodeDesignSystem().register(vsCodeButton(), vsCodeBadge());
 		} catch (error) {
 			console.warn('Failed to load VS Code Webview UI Toolkit:', error);

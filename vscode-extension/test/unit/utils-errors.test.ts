@@ -12,7 +12,9 @@ import {
 	safeStringifyError,
 	withErrorHandling,
 	withErrorRecovery,
-	withErrorRecoverySync
+	withErrorRecoverySync,
+	withErrorRecoveryResult,
+	withErrorRecoverySyncResult
 } from '../../src/utils/errors';
 
 test('BackendConfigError/BackendAuthError/BackendSyncError set name and cause', () => {
@@ -252,4 +254,69 @@ test('withErrorRecovery returns array fallback when fn throws', async () => {
 test('withErrorRecovery returns null fallback when fn throws', async () => {
 	const result = await withErrorRecovery(async () => { throw new Error('fail'); }, null);
 	assert.equal(result, null);
+});
+
+// ── withErrorRecoverySyncResult tests ─────────────────────────────────────
+
+test('withErrorRecoverySyncResult returns ok:true with value on success', () => {
+	const result = withErrorRecoverySyncResult(() => 42, 'ctx');
+	assert.ok(result.ok);
+	if (result.ok) { assert.equal(result.value, 42); }
+});
+
+test('withErrorRecoverySyncResult returns ok:false with error on throw', () => {
+	const thrown = new Error('sync-fail');
+	const result = withErrorRecoverySyncResult(() => { throw thrown; }, 'ctx');
+	assert.equal(result.ok, false);
+	if (!result.ok) { assert.equal(result.error, thrown); }
+});
+
+test('withErrorRecoverySyncResult captures non-Error thrown values', () => {
+	const result = withErrorRecoverySyncResult(() => { throw 'oops'; }, 'ctx');
+	assert.equal(result.ok, false);
+	if (!result.ok) { assert.equal(result.error, 'oops'); }
+});
+
+test('withErrorRecoverySyncResult works without context argument', () => {
+	const result = withErrorRecoverySyncResult(() => { throw new Error('no-ctx'); });
+	assert.equal(result.ok, false);
+});
+
+// ── withErrorRecoveryResult tests (async) ────────────────────────────────
+
+test('withErrorRecoveryResult returns ok:true with value for sync fn', async () => {
+	const result = await withErrorRecoveryResult(() => 'hello', 'ctx');
+	assert.ok(result.ok);
+	if (result.ok) { assert.equal(result.value, 'hello'); }
+});
+
+test('withErrorRecoveryResult returns ok:true with value for async fn', async () => {
+	const result = await withErrorRecoveryResult(async () => 'world', 'ctx');
+	assert.ok(result.ok);
+	if (result.ok) { assert.equal(result.value, 'world'); }
+});
+
+test('withErrorRecoveryResult returns ok:false when sync fn throws', async () => {
+	const thrown = new Error('sync-async-fail');
+	const result = await withErrorRecoveryResult(() => { throw thrown; }, 'ctx');
+	assert.equal(result.ok, false);
+	if (!result.ok) { assert.equal(result.error, thrown); }
+});
+
+test('withErrorRecoveryResult returns ok:false when async fn rejects', async () => {
+	const thrown = new Error('async-fail');
+	const result = await withErrorRecoveryResult(async () => { throw thrown; }, 'ctx');
+	assert.equal(result.ok, false);
+	if (!result.ok) { assert.equal(result.error, thrown); }
+});
+
+test('withErrorRecoveryResult captures non-Error thrown values', async () => {
+	const result = await withErrorRecoveryResult(async () => { throw 'string-error'; }, 'ctx');
+	assert.equal(result.ok, false);
+	if (!result.ok) { assert.equal(result.error, 'string-error'); }
+});
+
+test('withErrorRecoveryResult works without context argument', async () => {
+	const result = await withErrorRecoveryResult(async () => { throw new Error('no-ctx'); });
+	assert.equal(result.ok, false);
 });

@@ -17,7 +17,7 @@ import { extractDailyFractions } from '../../vscode-extension/src/dailyAttributi
 import type { DetailedStats, PeriodStats, ModelUsage, EditorUsage, SessionFileCache, UsageAnalysisStats, UsageAnalysisPeriod, WorkspaceCustomizationMatrix } from '../../vscode-extension/src/types';
 import { analyzeSessionUsage, mergeUsageAnalysis, calculateModelSwitching, trackEnhancedMetrics } from '../../vscode-extension/src/usageAnalysis';
 import { createEmptyContextRefs } from '../../vscode-extension/src/tokenEstimation';
-import { withErrorRecovery, withErrorRecoverySync } from '../../vscode-extension/src/utils/errors';
+import { withErrorRecovery } from '../../vscode-extension/src/utils/errors';
 import * as vscodeStub from './vscode-stub';
 import { loadCache, saveCache, disableCache, getCached, setCached, getCacheStats } from './cliCache';
 import { ENVIRONMENTAL } from './constants';
@@ -105,7 +105,8 @@ export async function buildCustomizationMatrix(sessionFiles: string[]): Promise<
 		const workspaceJsonPath = path.join(hashDir, 'workspace.json');
 
 		try {
-			if (!fs.existsSync(workspaceJsonPath)) { continue; }
+			const workspaceJsonExists = await fs.promises.access(workspaceJsonPath).then(() => true).catch(() => false);
+			if (!workspaceJsonExists) { continue; }
 			const content = JSON.parse(await fs.promises.readFile(workspaceJsonPath, 'utf-8'));
 			const folderUri: string | undefined = content.folder;
 			if (!folderUri || !folderUri.startsWith('file://')) { continue; }
@@ -121,11 +122,13 @@ export async function buildCustomizationMatrix(sessionFiles: string[]): Promise<
 
 	let workspacesWithIssues = 0;
 	for (const wsPath of workspacePaths) {
-		const hasIssues = withErrorRecoverySync(
-			() => {
-				const hasInstructions = fs.existsSync(path.join(wsPath, '.github', 'copilot-instructions.md'));
-				const hasAgentsMd    = fs.existsSync(path.join(wsPath, 'agents.md'));
-				const hasClaudeMd    = fs.existsSync(path.join(wsPath, 'CLAUDE.md'));
+		const hasIssues = await withErrorRecovery(
+			async () => {
+				const [hasInstructions, hasAgentsMd, hasClaudeMd] = await Promise.all([
+					fs.promises.access(path.join(wsPath, '.github', 'copilot-instructions.md')).then(() => true).catch(() => false),
+					fs.promises.access(path.join(wsPath, 'agents.md')).then(() => true).catch(() => false),
+					fs.promises.access(path.join(wsPath, 'CLAUDE.md')).then(() => true).catch(() => false),
+				]);
 				return !hasInstructions && !hasAgentsMd && !hasClaudeMd;
 			},
 			true,
@@ -251,6 +254,7 @@ export interface SessionData {
  */
 /** Returns actual tokens when available (more accurate), else falls back to estimated. */
 export function effectiveTokens(data: SessionData): number {
+	if (!data) { return 0; }
 	return data.actualTokens > 0 ? data.actualTokens : data.tokens;
 }
 
@@ -728,6 +732,12 @@ const CHART_COLORS = [
  * returned by `calculateDailyStats`. Includes weekly and monthly period aggregations.
  */
 export function buildChartPayload(labels: string[], days: DailyEntry[], allDaysMap?: Map<string, DailyEntry>): object {
+	if (!labels || !days) {
+		throw new Error('buildChartPayload: labels and days are required');
+	}
+	if (labels.length !== days.length) {
+		throw new Error(`buildChartPayload: labels.length (${labels.length}) !== days.length (${days.length})`);
+	}
 	const fmtKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 	const buildPeriodFromEntries = (buckets: Array<{ label: string; entry: DailyEntry }>) => {
@@ -863,11 +873,13 @@ export function buildChartPayload(labels: string[], days: DailyEntry[], allDaysM
 
 /** Format a number with thousand separators */
 export function fmt(n: number): string {
-	return n.toLocaleString('en-US');
+	if (n == null || !Number.isFinite(n)) { return '0'; }
+	return Math.round(n).toLocaleString('en-US');
 }
 
 /** Format token counts for display */
 export function formatTokens(tokens: number): string {
+	if (tokens == null || !Number.isFinite(tokens) || tokens < 0) { return '0'; }
 	if (tokens >= 1_000_000_000) {
 		return `${(tokens / 1_000_000_000).toFixed(1)}B`;
 	}

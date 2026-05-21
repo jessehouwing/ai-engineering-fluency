@@ -4,6 +4,29 @@ import { upsertUser, type UserRow } from './db.js';
 
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
+interface GitHubUserResponse {
+	id: number;
+	login: string;
+	name: string | null;
+	avatar_url: string;
+}
+
+/** Type guard that validates the shape of the GitHub /user API response at runtime. */
+function isValidGitHubUserResponse(data: unknown): data is GitHubUserResponse {
+	if (!data || typeof data !== 'object') return false;
+	const d = data as Record<string, unknown>;
+	return (
+		typeof d['id'] === 'number' &&
+		Number.isInteger(d['id']) &&
+		d['id'] > 0 &&
+		typeof d['login'] === 'string' &&
+		d['login'].length > 0 &&
+		(d['name'] === null || typeof d['name'] === 'string') &&
+		typeof d['avatar_url'] === 'string' &&
+		d['avatar_url'].length > 0
+	);
+}
+
 interface CachedAuth {
 	user: UserRow;
 	expiresAt: number;
@@ -73,7 +96,21 @@ export async function validateGitHubToken(token: string): Promise<UserRow | null
 		return null;
 	}
 
-	const data = await response.json() as { id: number; login: string; name: string | null; avatar_url: string };
+	let rawData: unknown;
+	try {
+		rawData = await response.json();
+	} catch {
+		// Malformed JSON from GitHub API — don't cache, treat as transient failure
+		return null;
+	}
+
+	if (!isValidGitHubUserResponse(rawData)) {
+		// GitHub API returned an unexpected data shape — could indicate API version change
+		console.warn('[auth] GitHub /user response failed schema validation');
+		return null;
+	}
+
+	const data = rawData;
 
 	// Optional org membership check
 	const allowedOrg = process.env.ALLOWED_GITHUB_ORG;
