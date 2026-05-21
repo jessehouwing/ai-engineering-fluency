@@ -1,7 +1,8 @@
 // @ts-ignore
 import tokenEstimatorsJson from '../../tokenEstimators.json';
+import type { TokenEstimator } from '../../types';
 
-const tokenEstimators: Record<string, number> = tokenEstimatorsJson.estimators;
+const tokenEstimators: Record<string, TokenEstimator> = tokenEstimatorsJson.estimators;
 let currentLocale: string | undefined;
 let compactNumbersEnabled = true;
 
