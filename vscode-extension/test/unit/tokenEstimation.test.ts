@@ -681,6 +681,82 @@ test('extractCachedTokensFromDebugLog: ignores non-numeric cachedTokens values',
         assert.equal(extractCachedTokensFromDebugLog(lines), 100);
 });
 
+// ── extractAllTokensFromDebugLog ──────────────────────────────────────────
+
+import { extractAllTokensFromDebugLog } from '../../src/tokenEstimation';
+
+test('extractAllTokensFromDebugLog: sums all token fields across llm_request events', () => {
+        const lines = [
+                JSON.stringify({ type: 'llm_request', attrs: { inputTokens: 21224, outputTokens: 636, cachedTokens: 5000 } }),
+                JSON.stringify({ type: 'llm_request', attrs: { inputTokens: 22327, outputTokens: 101, cachedTokens: 3000 } }),
+        ].join('\n');
+        const result = extractAllTokensFromDebugLog(lines);
+        assert.ok(result);
+        assert.equal(result.inputTokens, 43551);
+        assert.equal(result.outputTokens, 737);
+        assert.equal(result.cachedTokens, 8000);
+        assert.equal(result.modelTurns, 2);
+});
+
+test('extractAllTokensFromDebugLog: returns null for empty content', () => {
+        assert.equal(extractAllTokensFromDebugLog(''), null);
+});
+
+test('extractAllTokensFromDebugLog: returns null when no llm_request events exist', () => {
+        const lines = [
+                JSON.stringify({ type: 'request_start', attrs: { inputTokens: 100 } }),
+                JSON.stringify({ type: 'request_end', attrs: {} }),
+        ].join('\n');
+        assert.equal(extractAllTokensFromDebugLog(lines), null);
+});
+
+test('extractAllTokensFromDebugLog: handles missing optional fields gracefully', () => {
+        const lines = [
+                JSON.stringify({ type: 'llm_request', attrs: { inputTokens: 1000 } }),
+                JSON.stringify({ type: 'llm_request', attrs: { outputTokens: 200 } }),
+        ].join('\n');
+        const result = extractAllTokensFromDebugLog(lines);
+        assert.ok(result);
+        assert.equal(result.inputTokens, 1000);
+        assert.equal(result.outputTokens, 200);
+        assert.equal(result.cachedTokens, 0);
+        assert.equal(result.modelTurns, 2);
+});
+
+test('extractAllTokensFromDebugLog: ignores non-llm_request events', () => {
+        const lines = [
+                JSON.stringify({ type: 'request_start', attrs: { inputTokens: 9999 } }),
+                JSON.stringify({ type: 'llm_request', attrs: { inputTokens: 500, outputTokens: 100 } }),
+                JSON.stringify({ type: 'request_end', attrs: {} }),
+        ].join('\n');
+        const result = extractAllTokensFromDebugLog(lines);
+        assert.ok(result);
+        assert.equal(result.inputTokens, 500);
+        assert.equal(result.outputTokens, 100);
+        assert.equal(result.modelTurns, 1);
+});
+
+test('extractAllTokensFromDebugLog: skips invalid JSON lines without crashing', () => {
+        const lines = [
+                JSON.stringify({ type: 'llm_request', attrs: { inputTokens: 300, outputTokens: 50 } }),
+                'not valid json {{{',
+                JSON.stringify({ type: 'llm_request', attrs: { inputTokens: 200, outputTokens: 30 } }),
+        ].join('\n');
+        const result = extractAllTokensFromDebugLog(lines);
+        assert.ok(result);
+        assert.equal(result.inputTokens, 500);
+        assert.equal(result.outputTokens, 80);
+        assert.equal(result.modelTurns, 2);
+});
+
+test('extractAllTokensFromDebugLog: extractCachedTokensFromDebugLog still works via delegation', () => {
+        const lines = [
+                JSON.stringify({ type: 'llm_request', attrs: { inputTokens: 1000, outputTokens: 200, cachedTokens: 5000 } }),
+                JSON.stringify({ type: 'llm_request', attrs: { inputTokens: 2000, outputTokens: 100, cachedTokens: 3000 } }),
+        ].join('\n');
+        assert.equal(extractCachedTokensFromDebugLog(lines), 8000);
+});
+
 // ── Strategy pattern: selectTokenEstimationStrategy ────────────────────────
 
 import { DeltaTokenStrategy, EventJsonlTokenStrategy, selectTokenEstimationStrategy } from '../../src/tokenEstimation';

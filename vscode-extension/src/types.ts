@@ -184,6 +184,9 @@ export interface SessionFileCache {
   thinkingTokens?: number; // Estimated thinking/reasoning tokens
   actualTokens?: number; // Actual token count from LLM API usage data (when available)
   cacheReadTokens?: number; // Cache-read token count from session.shutdown modelMetrics or ecosystem adapter API usage
+  modelTurns?: number; // Number of LLM API calls in agent-mode sessions (from debug log)
+  debugLogInputTokens?: number; // Input token total from debug log (sum across all llm_request events)
+  debugLogOutputTokens?: number; // Output token total from debug log (sum across all llm_request events)
   /** Per-UTC-day token/interaction breakdown (keyed by YYYY-MM-DD UTC). Used for consistent daily stats. */
   dailyRollups?: { [utcDayKey: string]: DailyRollupEntry };
 }
@@ -479,6 +482,12 @@ export interface SessionLogData {
   cachedTokens?: number;
   /** Number of distinct subagent sessions started (CLI format only, from subagent.started events). */
   subAgentsStarted?: number;
+  /** Input token total from debug log (sum of all llm_request events). Present for VS Code Copilot Chat agent-mode sessions. */
+  debugLogInputTokens?: number;
+  /** Output token total from debug log (sum of all llm_request events). Present for VS Code Copilot Chat agent-mode sessions. */
+  debugLogOutputTokens?: number;
+  /** Number of LLM API calls made during the session (from debug log). >1 means agent-mode multi-call session. */
+  modelTurns?: number;
 }
 
 // ---------------------------------------------------------------------------

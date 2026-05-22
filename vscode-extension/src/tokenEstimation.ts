@@ -483,6 +483,55 @@ export async function reconstructJsonlStateAsync(lines: string[], yieldInterval 
 }
 
 /**
+ * Extract token totals from all `llm_request` events in a Copilot Chat debug log.
+ *
+ * Agent-mode sessions make multiple LLM API calls per user turn. Only the last
+ * call's tokens are stored in the chat session file; the debug log records every
+ * call. Summing across all `llm_request` events gives the true session total.
+ *
+ * Returns null when no `llm_request` events are found (debug logging disabled,
+ * or file is empty / does not exist).
+ */
+export function extractAllTokensFromDebugLog(content: string): {
+	inputTokens: number;
+	outputTokens: number;
+	cachedTokens: number;
+	modelTurns: number;
+	modelBreakdown: Record<string, { inputTokens: number; outputTokens: number; cachedTokens: number }>;
+} | null {
+	let inputTokens = 0;
+	let outputTokens = 0;
+	let cachedTokens = 0;
+	let modelTurns = 0;
+	const modelBreakdown: Record<string, { inputTokens: number; outputTokens: number; cachedTokens: number }> = {};
+	for (const line of content.split(/\r?\n/)) {
+		if (!line.trim()) { continue; }
+		try {
+			const event = JSON.parse(line);
+			if (event.type === 'llm_request') {
+				modelTurns++;
+				const inp = typeof event?.attrs?.inputTokens === 'number' ? event.attrs.inputTokens : 0;
+				const out = typeof event?.attrs?.outputTokens === 'number' ? event.attrs.outputTokens : 0;
+				const cached = typeof event?.attrs?.cachedTokens === 'number' ? event.attrs.cachedTokens : 0;
+				inputTokens += inp;
+				outputTokens += out;
+				cachedTokens += cached;
+				// Accumulate per-model breakdown using attrs.model when present
+				const model = typeof event?.attrs?.model === 'string' && event.attrs.model ? event.attrs.model : '';
+				if (model) {
+					const entry = modelBreakdown[model] ?? { inputTokens: 0, outputTokens: 0, cachedTokens: 0 };
+					entry.inputTokens += inp;
+					entry.outputTokens += out;
+					entry.cachedTokens += cached;
+					modelBreakdown[model] = entry;
+				}
+			}
+		} catch { /* skip invalid lines */ }
+	}
+	return modelTurns > 0 ? { inputTokens, outputTokens, cachedTokens, modelTurns, modelBreakdown } : null;
+}
+
+/**
  * Extract total cached (prompt-cache-hit) tokens from a Copilot Chat debug log
  * file (typically at `debug-logs/{sessionId}/main.jsonl`).
  *
@@ -494,17 +543,7 @@ export async function reconstructJsonlStateAsync(lines: string[], yieldInterval 
  * non-Claude model, or file does not exist).
  */
 export function extractCachedTokensFromDebugLog(content: string): number {
-	let total = 0;
-	for (const line of content.split(/\r?\n/)) {
-		if (!line.trim()) { continue; }
-		try {
-			const event = JSON.parse(line);
-			if (event.type === 'llm_request' && typeof event?.attrs?.cachedTokens === 'number') {
-				total += event.attrs.cachedTokens;
-			}
-		} catch { /* skip invalid lines */ }
-	}
-	return total;
+	return extractAllTokensFromDebugLog(content)?.cachedTokens ?? 0;
 }
 
 /**

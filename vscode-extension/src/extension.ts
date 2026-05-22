@@ -98,7 +98,7 @@ import {
   reconstructJsonlStateAsync as _reconstructJsonlStateAsync,
   extractSubAgentData as _extractSubAgentData,
   buildReasoningEffortTimeline as _buildReasoningEffortTimeline,
-  extractCachedTokensFromDebugLog as _extractCachedTokensFromDebugLog,
+  extractAllTokensFromDebugLog as _extractAllTokensFromDebugLog,
   extractResponseItemText as _extractResponseItemText,
 } from './tokenEstimation';
 import { SessionDiscovery } from './sessionDiscovery';
@@ -190,7 +190,7 @@ type StatusBarDisplaySetting = 'none' | 'today' | 'last30days' | 'currentMonth' 
 
 class CopilotTokenTracker implements vscode.Disposable {
 	// Cache version - increment this when making changes that require cache invalidation
-	private static readonly CACHE_VERSION = 46; // Restore CLI cache token propagation in tokenEstimation + usageAnalysis (was reverted in 7d9def8)
+	private static readonly CACHE_VERSION = 49; // Debug-log modelUsage breakdown for accurate per-model cost calculation
 	// Maximum length for displaying workspace IDs in diagnostics/customization matrix
 	private static readonly WORKSPACE_ID_DISPLAY_LENGTH = 8;
 
@@ -2565,6 +2565,11 @@ class CopilotTokenTracker implements vscode.Disposable {
 								outputTok += usage.outputTokens || 0;
 								cachedTok += usage.cachedReadTokens || 0;
 							}
+							// Prefer debug-log totals when available — they sum all LLM API calls
+							// in the session (agent-mode makes multiple calls per user turn).
+							if (sessionData.debugLogInputTokens !== undefined) { inputTok = sessionData.debugLogInputTokens; }
+							if (sessionData.debugLogOutputTokens !== undefined) { outputTok = sessionData.debugLogOutputTokens; }
+							if (sessionData.cacheReadTokens !== undefined) { cachedTok = sessionData.cacheReadTokens; }
 							todaySessionsList.push({
 								title: sessionData.title || null,
 								filePath: sessionFile,
@@ -3080,6 +3085,58 @@ class CopilotTokenTracker implements vscode.Disposable {
 		// Check if we have valid cached data
 		const cached = this.getCachedSessionData(sessionFilePath);
 		if (cached && cached.mtime === mtime && cached.size === fileSize) {
+			// The cache entry may have been created by updateCacheWithSessionDetails (a "partial"
+			// entry that only has interactions/title/timestamps but no debug-log token data).
+			// If debug-log data is missing, try to supplement the entry with it now — this is
+			// fast (one file read) and avoids a full recomputation just to get the token totals.
+			if (cached.debugLogInputTokens === undefined) {
+				const debugLogTokens = await this.readTokensFromDebugLog(sessionFilePath);
+				if (debugLogTokens && (debugLogTokens.inputTokens + debugLogTokens.outputTokens) > 0) {
+					// Build corrected modelUsage and dailyRollups from debug-log per-model breakdown
+					let supplementModelUsage = cached.modelUsage;
+					let supplementDailyRollups = cached.dailyRollups;
+					if (Object.keys(debugLogTokens.modelBreakdown).length > 0) {
+						supplementModelUsage = {};
+						for (const [model, bd] of Object.entries(debugLogTokens.modelBreakdown)) {
+							supplementModelUsage[model] = {
+								inputTokens: bd.inputTokens,
+								outputTokens: bd.outputTokens,
+								...(bd.cachedTokens > 0 ? { cachedReadTokens: bd.cachedTokens } : {}),
+							};
+						}
+						if (cached.dailyRollups) {
+							const totalDayInteractions = Object.values(cached.dailyRollups).reduce((s, dr) => s + dr.interactions, 0);
+							if (totalDayInteractions > 0) {
+								supplementDailyRollups = {};
+								for (const [dayKey, dayRollup] of Object.entries(cached.dailyRollups)) {
+									const fraction = dayRollup.interactions / totalDayInteractions;
+									const dayModelUsage: ModelUsage = {};
+									for (const [model, usage] of Object.entries(supplementModelUsage)) {
+										dayModelUsage[model] = {
+											inputTokens: Math.round(usage.inputTokens * fraction),
+											outputTokens: Math.round(usage.outputTokens * fraction),
+											...(usage.cachedReadTokens !== undefined ? { cachedReadTokens: Math.round(usage.cachedReadTokens * fraction) } : {}),
+										};
+									}
+									supplementDailyRollups[dayKey] = { ...dayRollup, modelUsage: dayModelUsage };
+								}
+							}
+						}
+					}
+					const supplemented: SessionFileCache = {
+						...cached,
+						modelUsage: supplementModelUsage,
+						dailyRollups: supplementDailyRollups,
+						actualTokens: debugLogTokens.inputTokens + debugLogTokens.outputTokens,
+						...(debugLogTokens.modelTurns ? { modelTurns: debugLogTokens.modelTurns } : {}),
+						debugLogInputTokens: debugLogTokens.inputTokens,
+						debugLogOutputTokens: debugLogTokens.outputTokens,
+					};
+					this.setCachedSessionData(sessionFilePath, supplemented, fileSize);
+					this._cacheHits++;
+					return supplemented;
+				}
+			}
 			this._cacheHits++;
 			return cached;
 		}
@@ -3175,13 +3232,21 @@ class CopilotTokenTracker implements vscode.Disposable {
 			} catch { /* ignore date parsing errors */ }
 		}
 
-		// For VS Code Copilot Chat sessions, the debug log companion file exposes
-		// per-LLM-call cached token counts (attrs.cachedTokens) that the session
-		// JSONL itself does not record. Read the debug log when the session parser
-		// found no cache data (CLI-only path) and the session is a UUID-named file.
-		const debugLogCached = !tokenResult.cacheReadTokens
-			? await this.readCachedTokensFromDebugLog(sessionFilePath)
-			: 0;
+		// For VS Code Copilot Chat sessions, the debug log companion file records every
+		// LLM API call made during the session. Agent-mode sessions make multiple calls
+		// per user turn; the chat session file only retains the last call's token counts.
+		// Reading the debug log and summing all `llm_request` events gives the true totals.
+		// We always attempt to read the debug log so we can correct actualTokens even when
+		// cached-token data is already present in the session file.
+		const debugLogTokens = await this.readTokensFromDebugLog(sessionFilePath);
+
+		// Prefer debug-log actualTokens when the log contains at least one llm_request event.
+		const resolvedActualTokens = (debugLogTokens && (debugLogTokens.inputTokens + debugLogTokens.outputTokens) > 0)
+			? debugLogTokens.inputTokens + debugLogTokens.outputTokens
+			: tokenResult.actualTokens;
+
+		// Use debug-log cached tokens only when the session parser found none (avoids double-counting).
+		const debugLogCached = !tokenResult.cacheReadTokens ? (debugLogTokens?.cachedTokens ?? 0) : 0;
 		const resolvedCacheReadTokens = tokenResult.cacheReadTokens || debugLogCached || undefined;
 
 		// For ecosystem adapters (Claude Code, Claude Desktop, OpenCode, Gemini CLI),
@@ -3213,10 +3278,39 @@ class CopilotTokenTracker implements vscode.Disposable {
 			}
 		}
 
+		// Replace modelUsage with debug-log per-model breakdown when available.
+		// Agent-mode sessions make multiple LLM API calls per user turn; the session file only
+		// records the last call's tokens, severely under-counting input/output and therefore cost.
+		// The debug log records every API call with the model and exact token counts.
+		let resolvedModelUsage = modelUsage;
+		if (debugLogTokens && Object.keys(debugLogTokens.modelBreakdown).length > 0) {
+			resolvedModelUsage = {};
+			for (const [model, bd] of Object.entries(debugLogTokens.modelBreakdown)) {
+				resolvedModelUsage[model] = {
+					inputTokens: bd.inputTokens,
+					outputTokens: bd.outputTokens,
+					...(bd.cachedTokens > 0 ? { cachedReadTokens: bd.cachedTokens } : {}),
+				};
+			}
+			// Update per-day rollup model usage with proportionally distributed debug-log values
+			for (const [dayKey, dayRollup] of Object.entries(dailyRollups)) {
+				const fraction = totalInteractions > 0 ? dayRollup.interactions / totalInteractions : 1;
+				const dayModelUsage: ModelUsage = {};
+				for (const [model, usage] of Object.entries(resolvedModelUsage)) {
+					dayModelUsage[model] = {
+						inputTokens: Math.round(usage.inputTokens * fraction),
+						outputTokens: Math.round(usage.outputTokens * fraction),
+						...(usage.cachedReadTokens !== undefined ? { cachedReadTokens: Math.round(usage.cachedReadTokens * fraction) } : {}),
+					};
+				}
+				dailyRollups[dayKey].modelUsage = dayModelUsage;
+			}
+		}
+
 		const sessionData: SessionFileCache = {
 			tokens: tokenResult.tokens,
 			interactions,
-			modelUsage,
+			modelUsage: resolvedModelUsage,
 			mtime,
 			size: fileSize,
 			usageAnalysis,
@@ -3224,8 +3318,13 @@ class CopilotTokenTracker implements vscode.Disposable {
 			firstInteraction: sessionMeta.firstInteraction,
 			lastInteraction: sessionMeta.lastInteraction,
 			thinkingTokens: tokenResult.thinkingTokens,
-			actualTokens: tokenResult.actualTokens,
+			actualTokens: resolvedActualTokens,
 			...(finalCacheReadTokens ? { cacheReadTokens: finalCacheReadTokens } : {}),
+			...(debugLogTokens?.modelTurns ? { modelTurns: debugLogTokens.modelTurns } : {}),
+			...(debugLogTokens && (debugLogTokens.inputTokens + debugLogTokens.outputTokens) > 0 ? {
+				debugLogInputTokens: debugLogTokens.inputTokens,
+				debugLogOutputTokens: debugLogTokens.outputTokens,
+			} : {}),
 			dailyRollups: Object.keys(dailyRollups).length > 0 ? dailyRollups : undefined,
 		};
 
@@ -3403,6 +3502,11 @@ class CopilotTokenTracker implements vscode.Disposable {
 			// Preserve existing dailyRollups so this partial update does not discard
 			// the per-day breakdown computed by getSessionFileDataCached().
 			dailyRollups: existingCache?.dailyRollups,
+			// Preserve debug-log token data so a partial updateCacheWithSessionDetails call
+			// does not wipe out values already populated by getSessionFileDataCached().
+			...(existingCache?.modelTurns !== undefined ? { modelTurns: existingCache.modelTurns } : {}),
+			...(existingCache?.debugLogInputTokens !== undefined ? { debugLogInputTokens: existingCache.debugLogInputTokens } : {}),
+			...(existingCache?.debugLogOutputTokens !== undefined ? { debugLogOutputTokens: existingCache.debugLogOutputTokens } : {}),
 			usageAnalysis: existingCache?.usageAnalysis || {
 				toolCalls: { total: 0, byTool: {} },
 				modeUsage: { ask: 0, edit: 0, agent: 0, plan: 0, customAgent: 0, cli: 0 },
@@ -4252,7 +4356,10 @@ usageAnalysis: undefined
 			usageAnalysis,
 			actualTokens: sessionCache?.actualTokens || 0,
 			...(sessionCache?.cacheReadTokens ? { cachedTokens: sessionCache.cacheReadTokens } : {}),
-			...(subAgentsStarted !== undefined ? { subAgentsStarted } : {})
+			...(subAgentsStarted !== undefined ? { subAgentsStarted } : {}),
+			...(sessionCache?.debugLogInputTokens !== undefined ? { debugLogInputTokens: sessionCache.debugLogInputTokens } : {}),
+			...(sessionCache?.debugLogOutputTokens !== undefined ? { debugLogOutputTokens: sessionCache.debugLogOutputTokens } : {}),
+			...(sessionCache?.modelTurns !== undefined ? { modelTurns: sessionCache.modelTurns } : {}),
 		};
 	}
 
@@ -4421,23 +4528,25 @@ usageAnalysis: undefined
 	}
 
 	/**
-	 * Read cached-token counts from the Copilot Chat debug log companion file for
+	 * Read all token counts from the Copilot Chat debug log companion file for
 	 * a given chat session. The debug log lives at:
 	 *   `{workspaceStorage}/{hash}/{extension}/debug-logs/{sessionId}/main.jsonl`
 	 * where `{extension}` is one of the GitHub.copilot-chat / GitHub.copilot variants.
 	 *
-	 * Returns 0 when no debug log is found or contains no cached-token data.
+	 * Returns null when no debug log is found or it contains no `llm_request` events.
+	 * When found, sums `inputTokens`, `outputTokens`, and `cachedTokens` across every
+	 * `llm_request` event to give true totals for agent-mode multi-call sessions.
 	 */
-	private async readCachedTokensFromDebugLog(sessionFilePath: string): Promise<number> {
+	private async readTokensFromDebugLog(sessionFilePath: string): Promise<{ inputTokens: number; outputTokens: number; cachedTokens: number; modelTurns: number; modelBreakdown: Record<string, { inputTokens: number; outputTokens: number; cachedTokens: number }> } | null> {
 		const norm = _normalizePath(sessionFilePath);
 		const sessionId = path.basename(sessionFilePath, path.extname(sessionFilePath));
 		// Only process UUID-named session files (e.g. e84b3e82-c1fb-43de-8f52-367f4c74826a)
 		if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
-			return 0;
+			return null;
 		}
 		// Derive the workspaceStorage/<hash> directory from the session file path
 		const wsHashMatch = norm.match(/^(.*\/workspaceStorage\/[^/]+)\//);
-		if (!wsHashMatch) { return 0; }
+		if (!wsHashMatch) { return null; }
 		const workspaceHashDir = sessionFilePath.substring(0, wsHashMatch[1].length);
 
 		const extensionFolders = ['GitHub.copilot-chat', 'github.copilot-chat', 'GitHub.copilot', 'github.copilot'];
@@ -4445,11 +4554,11 @@ usageAnalysis: undefined
 			const debugLogPath = path.join(workspaceHashDir, extFolder, 'debug-logs', sessionId, 'main.jsonl');
 			try {
 				const content = await fs.promises.readFile(debugLogPath, 'utf8');
-				const cached = _extractCachedTokensFromDebugLog(content);
-				if (cached > 0) { return cached; }
+				const result = _extractAllTokensFromDebugLog(content);
+				if (result) { return result; }
 			} catch { /* file doesn't exist or can't be read — try next variant */ }
 		}
-		return 0;
+		return null;
 	}
 
 	private extractPerRequestUsageFromRawLines(lines: string[]): Map<number, { promptTokens: number; outputTokens: number }> {
