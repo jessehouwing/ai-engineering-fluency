@@ -365,7 +365,7 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run package",
+    "vscode:prepublish": "pnpm run package",
     "compile": "tsc --noEmit && eslint src && node esbuild.js",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
@@ -384,18 +384,18 @@
     "test:node": "node ../scripts/prepare-test-output.js && tsc -p tsconfig.tests.json && node ../scripts/run-node-unit-tests.js",
     "test:coverage": "node ../scripts/prepare-test-output.js && tsc -p tsconfig.tests.json && node --require ./out/test/unit/vscode-shim-register.js --experimental-test-coverage --test --test-force-exit --test-coverage-lines=65 --test-coverage-functions=70 --test-coverage-branches=60 --test-coverage-include=out/src/backend/**/*.js --test-coverage-include=out/src/utils/**/*.js --test-coverage-include=out/src/usageAnalysis.js --test-coverage-include=out/src/tokenEstimation.js --test-coverage-include=out/src/maturityScoring.js out/test/unit/*.test.js",
     "test:coverage:ci": "node --require ./out/test/unit/vscode-shim-register.js --experimental-test-coverage --test --test-force-exit --test-coverage-include=out/src/backend/**/*.js --test-coverage-include=out/src/utils/**/*.js --test-coverage-include=out/src/usageAnalysis.js --test-coverage-include=out/src/tokenEstimation.js --test-coverage-include=out/src/maturityScoring.js out/test/unit/*.test.js",
-    "test:mutation": "npm run compile-tests && npx stryker run",
+    "test:mutation": "pnpm run compile-tests && npx stryker run",
     "pre-release": "node ../scripts/pre-release.js",
     "capture-screenshots": "pwsh -File ../scripts/capture-screenshots.ps1",
     "sync-changelog": "node ../scripts/sync-changelog.js",
     "sync-changelog:test": "node ../scripts/sync-changelog.js --test",
-    "cli:build": "cd cli && npm install && npm run build",
-    "cli:build:production": "cd cli && npm install && npm run build:production",
-    "cli:stats": "cd cli && node dist/cli.js stats",
-    "cli:usage": "cd cli && node dist/cli.js usage",
-    "cli:environmental": "cd cli && node dist/cli.js environmental",
-    "cli:fluency": "cd cli && node dist/cli.js fluency",
-    "cli": "cd cli && node dist/cli.js"
+    "cli:build": "cd ../cli && pnpm install && pnpm run build",
+    "cli:build:production": "cd ../cli && pnpm install && pnpm run build:production",
+    "cli:stats": "cd ../cli && node dist/cli.js stats",
+    "cli:usage": "cd ../cli && node dist/cli.js usage",
+    "cli:environmental": "cd ../cli && node dist/cli.js environmental",
+    "cli:fluency": "cd ../cli && node dist/cli.js fluency",
+    "cli": "cd ../cli && node dist/cli.js"
   },
   "devDependencies": {
     "@github/copilot": "^1.0.10",
@@ -436,6 +436,7 @@
     "pptxgenjs": "4.0.1",
     "sql.js": "1.14.1"
   },
+  "packageManager": "pnpm@11.2.2",
   "overrides": {
     "diff": ">=8.0.3",
     "fast-uri": ">=3.1.2",

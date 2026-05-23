@@ -33,6 +33,6 @@
   "containerEnv": {
     "NODE_OPTIONS": "--max-old-space-size=4096"
   },
-  "postCreateCommand": "npm ci",
+  "postCreateCommand": "corepack enable && pnpm install --frozen-lockfile",
   "remoteUser": "node"
 }

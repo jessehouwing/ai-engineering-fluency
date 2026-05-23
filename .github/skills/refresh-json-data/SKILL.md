@@ -154,7 +154,7 @@ After updating the JSON files:
 
 2. **Rebuild the extension**:
    ```bash
-   npm run compile
+   pnpm run compile
    ```
 
 3. **Test in VS Code**:
@@ -193,7 +193,7 @@ After updating the JSON files:
 ## Important Notes
 
 - **Bundled at build time**: These JSON files are bundled into the extension during compilation via `esbuild.js`
-- **Rebuild required**: Always run `npm run compile` after changes
+- **Rebuild required**: Always run `pnpm run compile` after changes
 - **Pricing disclaimer**: GitHub Copilot pricing may differ from direct API usage
 - **Estimation nature**: Token counts are estimates based on character ratios
 - **Documentation**: See `src/README.md` for additional details
@@ -216,7 +216,7 @@ After updating the JSON files:
 - Check that numeric values are not strings
 
 **Extension not loading updated data**:
-- Confirm you ran `npm run compile`
+- Confirm you ran `pnpm run compile`
 - Reload the Extension Development Host (Cmd/Ctrl+R)
 - Check the output console for errors
 
@@ -232,7 +232,7 @@ node -e "require('./src/tokenEstimators.json')" && echo "tokenEstimators.json: O
 node -e "require('./src/modelPricing.json')" && echo "modelPricing.json: OK"
 
 # 3. Rebuild the extension
-npm run compile
+pnpm run compile
 
 # 4. Test in VS Code
 # Press F5 to launch Extension Development Host

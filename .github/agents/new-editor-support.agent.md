@@ -165,7 +165,7 @@ Add the new editor at **eight locations** in `extension.ts`:
 - [ ] `usageAnalysis.ts` — deps interface, `getModelUsageFromSession()`, `analyzeSessionUsage()`
 - [ ] `webview/diagnostics/main.ts` — icon, badge class, all 4 badge render sites, candidate path grouping if needed
 - [ ] `webview/diagnostics/styles.css` — brand colour CSS rule added
-- [ ] `npm run compile` passes (TypeScript + ESLint + esbuild)
+- [ ] `pnpm run compile` passes (TypeScript + ESLint + esbuild)
 - [ ] Sessions appear in the session list with the correct editor name and icon
 - [ ] Token counts are non-zero and plausible
 - [ ] Timestamps are correct (not 1970)
