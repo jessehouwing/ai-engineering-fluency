@@ -216,7 +216,7 @@ type StatusBarDisplaySetting = 'none' | 'today' | 'last30days' | 'currentMonth' 
 
 class CopilotTokenTracker implements vscode.Disposable {
 	// Cache version - increment this when making changes that require cache invalidation
-	private static readonly CACHE_VERSION = 49; // Debug-log modelUsage breakdown for accurate per-model cost calculation
+	private static readonly CACHE_VERSION = 51; // Tokens (input+output) excludes cached tokens
 	// Maximum length for displaying workspace IDs in diagnostics/customization matrix
 	private static readonly WORKSPACE_ID_DISPLAY_LENGTH = 8;
 
@@ -2225,7 +2225,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 						// Per-UTC-day rollup path
 						for (const [dayKey, dayRollup] of Object.entries(sessionData.dailyRollups)) {
 							if (dayKey < cutoffUtcStartKey) { continue; }
-							const dayTokens = dayRollup.actualTokens > 0 ? dayRollup.actualTokens : dayRollup.tokens;
+							const dayTokens = (dayRollup.actualTokens > 0 ? dayRollup.actualTokens : dayRollup.tokens);
 
 							if (!dailyStatsMap.has(dayKey)) {
 								dailyStatsMap.set(dayKey, { date: dayKey, tokens: 0, sessions: 0, interactions: 0, modelUsage: {}, editorUsage: {}, repositoryUsage: {} });
@@ -2246,7 +2246,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 						// Fallback: session-level attribution
 						const estimatedTokens = sessionData.tokens;
 						const actualTokens = sessionData.actualTokens || 0;
-						const tokens = actualTokens > 0 ? actualTokens : estimatedTokens;
+						const tokens = (actualTokens > 0 ? actualTokens : estimatedTokens);
 						const interactions = sessionData.interactions;
 						const modelUsage = sessionData.modelUsage;
 
