@@ -1650,6 +1650,8 @@ export async function analyzeSessionUsage(deps: UsageAnalysisDeps, sessionFile: 
 			const lines = fileContent.trim().split('\n').filter((l: string) => l.trim());
 			if (_asuIsDeltaBased(lines)) {
 				_asuReconstructAndProcessDeltaState(deps, lines, analysis);
+				// Also track enhanced metrics (edit scope / LOC data) from the reconstructed requests
+				await trackEnhancedMetrics(deps, sessionFile, analysis, fileContent);
 				return analysis;
 			}
 			await _asuProcessNonDeltaJsonl(deps, sessionFile, lines, fileContent, analysis);
