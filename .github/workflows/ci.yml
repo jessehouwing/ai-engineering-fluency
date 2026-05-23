@@ -26,30 +26,33 @@ jobs:
 
     - name: Checkout code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
       
     - name: Setup Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
       with:
         node-version: ${{ matrix.node-version }}
-        cache: 'npm'
-        cache-dependency-path: vscode-extension/package-lock.json
+        cache: 'pnpm'
+        cache-dependency-path: vscode-extension/pnpm-lock.yaml
         
     - name: Install dependencies
       working-directory: vscode-extension
-      run: npm ci
+      run: pnpm install --frozen-lockfile
       
     - name: Validate JSON files
       working-directory: vscode-extension
-      run: npm run lint:json
+      run: pnpm run lint:json
       
     - name: Run linting
       working-directory: vscode-extension
-      run: npm run lint
+      run: pnpm run lint
 
     - name: Run complexity analysis
       working-directory: vscode-extension
       shell: bash
-      run: npm run --silent lint:report > "$RUNNER_TEMP/lint-output.json" 2>/dev/null || true
+      run: pnpm run --silent lint:report > "$RUNNER_TEMP/lint-output.json" 2>/dev/null || true
 
     - name: Publish complexity results to step summary
       if: always() && matrix.node-version == '24.x'
@@ -58,19 +61,19 @@ jobs:
 
     - name: Run type checking
       working-directory: vscode-extension
-      run: npm run check-types
+      run: pnpm run check-types
       
     - name: Compile extension
       working-directory: vscode-extension
-      run: npm run compile
+      run: pnpm run compile
       
     - name: Package extension
       working-directory: vscode-extension
-      run: npm run package
+      run: pnpm run package
       
     - name: Compile tests
       working-directory: vscode-extension
-      run: npm run compile-tests
+      run: pnpm run compile-tests
 
     - name: Run Node.js unit tests
       working-directory: vscode-extension
@@ -99,7 +102,7 @@ jobs:
         Xvfb :99 -screen 0 1024x768x24 &
 
     - name: Run tests
-      run: cd vscode-extension && npm test
+      run: cd vscode-extension && pnpm test
       continue-on-error: true  # VS Code extension tests can be flaky in CI
       env:
         DISPLAY: :99
@@ -129,21 +132,24 @@ jobs:
 
     - name: Checkout code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
       
     - name: Setup Node.js
       uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
       with:
         node-version: '24.x'
-        cache: 'npm'
-        cache-dependency-path: vscode-extension/package-lock.json
+        cache: 'pnpm'
+        cache-dependency-path: vscode-extension/pnpm-lock.yaml
         
     - name: Install dependencies
       working-directory: vscode-extension
-      run: npm ci
+      run: pnpm install --frozen-lockfile
       
     - name: Package extension
       working-directory: vscode-extension
-      run: npm run package
+      run: pnpm run package
       
     - name: Create VSIX package
       working-directory: vscode-extension
