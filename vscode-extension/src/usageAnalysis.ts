@@ -1669,6 +1669,8 @@ async function _asuProcessNonDeltaJsonl(
 
 	_asuApplyCliThinkingEffort(cliState, analysis);
 	await calculateModelSwitching(deps, sessionFile, analysis, fileContent);
+	// Track LOC/edit metrics for CLI sessions (delta path already handles this above)
+	await trackEnhancedMetrics(deps, sessionFile, analysis, fileContent);
 	deriveConversationPatterns(analysis);
 }
 
