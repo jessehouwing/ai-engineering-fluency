@@ -4585,13 +4585,14 @@ class CopilotTokenTracker implements vscode.Disposable {
 			case 'suppressUnknownTool': {
 				const toolName = message.toolName as string;
 				if (toolName) {
+					// Acknowledge immediately so the webview can remove the item without waiting for the disk write.
+					this.analysisPanel?.webview.postMessage({ command: 'toolSuppressed', toolName });
 					const config = vscode.workspace.getConfiguration('aiEngineeringFluency');
 					const current = config.get<string[]>('suppressedUnknownTools', []);
 					if (!current.includes(toolName)) {
 						await config.update('suppressedUnknownTools', [...current, toolName], vscode.ConfigurationTarget.Global);
 						this.log(`🔇 Suppressed unknown tool: ${toolName}`);
 					}
-					this.analysisPanel?.webview.postMessage({ command: 'toolSuppressed', toolName });
 				}
 				break;
 			}

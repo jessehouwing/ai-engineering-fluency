@@ -2464,6 +2464,9 @@ async function bootstrap(): Promise<void> {
 		const target = event.target as HTMLElement;
 		const toolName = target.getAttribute('data-suppress-tool');
 		if (toolName) {
+			// Optimistic UI: remove the item immediately so the user sees instant feedback,
+			// rather than waiting for the async config.update round-trip in the extension host.
+			handleToolSuppressed(toolName);
 			vscode.postMessage({ command: 'suppressUnknownTool', toolName });
 		}
 	});
