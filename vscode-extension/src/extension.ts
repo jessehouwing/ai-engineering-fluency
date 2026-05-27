@@ -1551,7 +1551,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 	/**
 	 * Fetch and log Copilot plan information and token endpoint metadata for the authenticated user.
 	 * Both API calls run in parallel so all Copilot info is logged together as a single grouped block.
-	 * For enterprise plans, also discovers the enterprise slug and checks the premium request budget.
+	 * For enterprise or business plans, also discovers the enterprise/org and checks the premium request budget.
 	 * Best-effort: each call is independent — a failure in one does not suppress the other.
 	 */
 	private async loadAndLogCopilotPlanInfo(): Promise<void> {
@@ -1564,12 +1564,14 @@ class CopilotTokenTracker implements vscode.Disposable {
 
 		// Log plan info
 		const { planInfo, statusCode: planStatus, error: planError } = planResult;
-		let isEnterprisePlan = false;
+		let isOrgPlan = false;
 		if (planError || !planInfo) {
 			this.warn(`Copilot plan info unavailable (HTTP ${planStatus ?? 'n/a'}): ${planError ?? 'no data'}`);
 		} else {
 			const planId = planInfo.copilot_plan as string | undefined;
-			isEnterprisePlan = (planId ?? '').toLowerCase().includes('enterprise');
+			const planIdLower = (planId ?? '').toLowerCase();
+			// Business and Enterprise plans are both backed by a GitHub Enterprise — show enterprise/budget info for both
+			isOrgPlan = planIdLower.includes('enterprise') || planIdLower.includes('business');
 			const plans = copilotPlansData.plans as Record<string, { name: string; monthlyPremiumRequests: number | null; monthlyPricePerUser: number; monthlyAiCreditsUsd: number }>;
 			const knownPlan = planId ? plans[planId] : undefined;
 			const planLabel = knownPlan ? `${knownPlan.name} (${planId})` : (planId ?? 'unknown');
@@ -1587,14 +1589,15 @@ class CopilotTokenTracker implements vscode.Disposable {
 			if (info.sku) { this.log(`  Copilot SKU: ${info.sku}`); }
 		}
 
-		// For enterprise plans: discover enterprise and check premium request budget
-		if (isEnterprisePlan) {
+		// For business/enterprise plans: discover enterprise and check premium request budget
+		if (isOrgPlan) {
 			await this.loadAndLogEnterpriseInfo();
 		}
 	}
 
 	/**
-	 * Discover which enterprise the user belongs to and fetch the premium request budget.
+	 * Discover which GitHub Enterprise(s) the user belongs to and fetch the premium request budget.
+	 * Fires for both Copilot Business and Copilot Enterprise plans (both are backed by a GitHub Enterprise).
 	 * Uses GraphQL viewer.enterprises and the enterprise billing/budgets endpoint.
 	 * Best-effort: requires enterprise admin or billing manager for budget data.
 	 */
