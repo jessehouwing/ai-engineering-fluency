@@ -1547,54 +1547,39 @@ class CopilotTokenTracker implements vscode.Disposable {
 	}
 
 	/**
-	 * Fetch and log Copilot plan information for the authenticated user.
-	 * Best-effort: silently skips if not authenticated or if the endpoint is unavailable.
+	 * Fetch and log Copilot plan information and token endpoint metadata for the authenticated user.
+	 * Both API calls run in parallel so all Copilot info is logged together as a single grouped block.
+	 * Best-effort: each call is independent — a failure in one does not suppress the other.
 	 */
 	private async loadAndLogCopilotPlanInfo(): Promise<void> {
 		if (!this.githubSession) { return; }
-		try {
-			const { planInfo, statusCode, error } = await fetchCopilotPlanInfo(this.githubSession.accessToken);
-			if (error || !planInfo) {
-				this.warn(`Copilot plan info unavailable (HTTP ${statusCode ?? 'n/a'}): ${error ?? 'no data'}`);
-				return;
-			}
+
+		const [planResult, tokenResult] = await Promise.all([
+			fetchCopilotPlanInfo(this.githubSession.accessToken).catch((err): ReturnType<typeof fetchCopilotPlanInfo> => Promise.resolve({ error: String(err) })),
+			fetchCopilotTokenEndpointInfo(this.githubSession.accessToken).catch((err): ReturnType<typeof fetchCopilotTokenEndpointInfo> => Promise.resolve({ error: String(err) })),
+		]);
+
+		// Log plan info
+		const { planInfo, statusCode: planStatus, error: planError } = planResult;
+		if (planError || !planInfo) {
+			this.warn(`Copilot plan info unavailable (HTTP ${planStatus ?? 'n/a'}): ${planError ?? 'no data'}`);
+		} else {
 			const planId = planInfo.copilot_plan as string | undefined;
 			const plans = copilotPlansData.plans as Record<string, { name: string; monthlyPremiumRequests: number | null; monthlyPricePerUser: number; monthlyAiCreditsUsd: number }>;
 			const knownPlan = planId ? plans[planId] : undefined;
 			const planLabel = knownPlan ? `${knownPlan.name} (${planId})` : (planId ?? 'unknown');
 			this.log(`Copilot plan: ${planLabel}`);
 			this.logCopilotPlanDetails(planId, knownPlan, planInfo);
-		} catch (err) {
-			this.warn('Failed to load Copilot plan info: ' + String(err));
 		}
-		await this.loadAndLogCopilotTokenEndpointInfo();
-	}
 
-	/**
-	 * Fetch and log Copilot token endpoint metadata from copilot_internal/v2/token.
-	 * Logs the API endpoint URL (shows individual/business/enterprise tier) and token expiry.
-	 * Best-effort: silently skips on any failure.
-	 */
-	private async loadAndLogCopilotTokenEndpointInfo(): Promise<void> {
-		if (!this.githubSession) { return; }
-		try {
-			const { info, statusCode, error } = await fetchCopilotTokenEndpointInfo(this.githubSession.accessToken);
-			if (error || !info) {
-				this.warn(`Copilot token endpoint info unavailable (HTTP ${statusCode ?? 'n/a'}): ${error ?? 'no data'}`);
-				return;
-			}
-			if (info.endpoints?.api) {
-				this.log(`  Copilot API endpoint: ${info.endpoints.api}`);
-			}
-			if (info.expires_at !== undefined) {
-				const expiresDate = new Date(info.expires_at * 1000);
-				this.log(`  Copilot token valid until: ${expiresDate.toISOString()}`);
-			}
-			if (info.sku) {
-				this.log(`  Copilot SKU: ${info.sku}`);
-			}
-		} catch (err) {
-			this.warn('Failed to load Copilot token endpoint info: ' + String(err));
+		// Log token endpoint info
+		const { info, statusCode: tokenStatus, error: tokenError } = tokenResult;
+		if (tokenError || !info) {
+			this.warn(`Copilot token endpoint info unavailable (HTTP ${tokenStatus ?? 'n/a'}): ${tokenError ?? 'no data'}`);
+		} else {
+			if (info.endpoints?.api) { this.log(`  Copilot API endpoint: ${info.endpoints.api}`); }
+			if (info.expires_at !== undefined) { this.log(`  Copilot token valid until: ${new Date(info.expires_at * 1000).toISOString()}`); }
+			if (info.sku) { this.log(`  Copilot SKU: ${info.sku}`); }
 		}
 	}
 
