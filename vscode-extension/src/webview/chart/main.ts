@@ -69,6 +69,7 @@ type InitialChartData = {
 	initialView?: 'total' | 'model' | 'editor' | 'repository' | 'cost';
 	initialMetric?: 'tokens' | 'output' | 'cost';
 	initialSplit?: 'total' | 'model' | 'editor' | 'repository' | 'language';
+	monthlyBudget?: number;
 	periods?: {
 		day: ChartPeriodData;
 		week: ChartPeriodData;
@@ -692,13 +693,37 @@ function buildTotalViewConfig(period: ChartPeriodData, baseOptions: ReturnType<t
 	};
 }
 
-function buildCostViewConfig(period: ChartPeriodData, baseOptions: ReturnType<typeof buildBaseOptions>, c: ChartColors): ChartConfig {
+function buildCostViewConfig(period: ChartPeriodData, baseOptions: ReturnType<typeof buildBaseOptions>, c: ChartColors, monthlyBudget = 0): ChartConfig {
 	const isRolling = currentDisplayMode === 'rolling';
 	const costData = isRolling ? computeRollingAverage(period.costData, ROLLING_WINDOW[currentPeriod]) : period.costData;
 	const lastIdx = period.costData.length - 1;
 	const projExtra = !isRolling && lastIdx >= 0 ? computeProjectionExtra(period.costData[lastIdx], getCurrentPeriodFraction(currentPeriod)) : null;
 	const projDs = projExtra !== null ? [{ label: PROJECTION_LABELS[currentPeriod], data: period.costData.map((_: number, i: number) => i === lastIdx ? projExtra : 0), backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: 'rgba(34, 197, 94, 0.5)', borderWidth: 1, yAxisID: 'y' }] : [];
 	const rollingLabel = getRollingLabel();
+	const showBudgetLine = currentPeriod === 'month' && monthlyBudget > 0;
+	const budgetLinePlugin = showBudgetLine ? {
+		id: 'budgetLine',
+		afterDraw(ch: any) {
+			const { ctx, chartArea, scales: { y } } = ch;
+			if (!y || !chartArea) { return; }
+			const yPos = y.getPixelForValue(monthlyBudget);
+			if (yPos < chartArea.top || yPos > chartArea.bottom) { return; }
+			ctx.save();
+			ctx.strokeStyle = 'rgba(255, 80, 80, 0.9)';
+			ctx.lineWidth = 2;
+			ctx.setLineDash([6, 4]);
+			ctx.beginPath();
+			ctx.moveTo(chartArea.left, yPos);
+			ctx.lineTo(chartArea.right, yPos);
+			ctx.stroke();
+			ctx.setLineDash([]);
+			ctx.fillStyle = 'rgba(255, 80, 80, 0.9)';
+			ctx.font = 'bold 11px sans-serif';
+			ctx.textAlign = 'left';
+			ctx.fillText(`Budget: $${monthlyBudget.toFixed(2)}`, chartArea.left + 6, yPos - 5);
+			ctx.restore();
+		},
+	} : null;
 	return {
 		type: 'bar' as const,
 		data: { labels: period.labels, datasets: [
@@ -706,9 +731,10 @@ function buildCostViewConfig(period: ChartPeriodData, baseOptions: ReturnType<ty
 			...projDs
 		] },
 		options: { ...baseOptions, plugins: { ...baseOptions.plugins, tooltip: { ...baseOptions.plugins.tooltip, callbacks: { label: (ctx: any) => ` $${Number(ctx.parsed.y).toFixed(4)}` } } },
-			scales: { x: { stacked: true, grid: { color: c.gridColor }, ticks: { color: c.textColor, font: { size: 11 } } }, y: { stacked: true, type: 'linear' as const, display: true, position: 'left' as const, grid: { color: c.gridColor }, ticks: { color: c.textColor, font: { size: 11 }, callback: (value: any) => `$${Number(value).toFixed(2)}` }, title: { display: true, text: 'Estimated Cost (UBB)', color: c.textColor, font: { size: 12, weight: 'bold' as const } } } }
-		}
-	};
+			scales: { x: { stacked: true, grid: { color: c.gridColor }, ticks: { color: c.textColor, font: { size: 11 } } }, y: { stacked: true, type: 'linear' as const, display: true, position: 'left' as const, grid: { color: c.gridColor }, ticks: { color: c.textColor, font: { size: 11 }, callback: (value: any) => `$${Number(value).toFixed(2)}` }, title: { display: true, text: 'Estimated Cost (UBB)', color: c.textColor, font: { size: 12, weight: 'bold' as const } }, ...(showBudgetLine ? { suggestedMax: monthlyBudget * 1.05 } : {}) } }
+		},
+		...(budgetLinePlugin ? { plugins: [budgetLinePlugin] } : {}),
+	} as ChartConfig;
 }
 
 function buildOutputViewConfig(view: string, period: ChartPeriodData, baseOptions: ReturnType<typeof buildBaseOptions>, c: ChartColors): ChartConfig {
@@ -752,7 +778,7 @@ function createConfig(data: InitialChartData): ChartConfig {
 	const c = getChartColors();
 	const baseOptions = buildBaseOptions(c);
 	if (view === 'total') { return buildTotalViewConfig(period, baseOptions, c); }
-	if (view === 'cost') { return buildCostViewConfig(period, baseOptions, c); }
+	if (view === 'cost') { return buildCostViewConfig(period, baseOptions, c, data.monthlyBudget ?? 0); }
 	if (view.startsWith('output-')) { return buildOutputViewConfig(view, period, baseOptions, c); }
 	return buildStackedViewConfig(view, period, baseOptions, c);
 }

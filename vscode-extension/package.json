@@ -196,6 +196,12 @@
           "default": "none",
           "description": "Controls which estimated costs (in USD) are shown in the status bar. Cost is estimated using GitHub Copilot AI-Credit rates (Usage Based Billing)."
         },
+        "aiEngineeringFluency.display.statusBar.monthlyBudget": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Monthly AI spend budget in USD. When set above 0, the status bar will change color as you approach the limit: yellow at 75%, orange at 90%, red at 100% or over. Set to 0 to disable budget coloring. Cost is estimated using GitHub Copilot AI-Credit rates."
+        },
         "aiEngineeringFluency.backend.enabled": {
           "type": "boolean",
           "default": false,
@@ -385,6 +391,7 @@
     "test:coverage": "node ../scripts/prepare-test-output.js && tsc -p tsconfig.tests.json && node --require ./out/test/unit/vscode-shim-register.js --experimental-test-coverage --test --test-force-exit --test-coverage-lines=65 --test-coverage-functions=70 --test-coverage-branches=60 --test-coverage-include=out/src/backend/**/*.js --test-coverage-include=out/src/utils/**/*.js --test-coverage-include=out/src/usageAnalysis.js --test-coverage-include=out/src/tokenEstimation.js --test-coverage-include=out/src/maturityScoring.js out/test/unit/*.test.js",
     "test:coverage:ci": "node --require ./out/test/unit/vscode-shim-register.js --experimental-test-coverage --test --test-force-exit --test-coverage-include=out/src/backend/**/*.js --test-coverage-include=out/src/utils/**/*.js --test-coverage-include=out/src/usageAnalysis.js --test-coverage-include=out/src/tokenEstimation.js --test-coverage-include=out/src/maturityScoring.js out/test/unit/*.test.js",
     "test:mutation": "npm run compile-tests && npx stryker run",
+    "package:pre-release": "tsc --noEmit && eslint src && node esbuild.js --production && npx vsce package --pre-release",
     "pre-release": "node ../scripts/pre-release.js",
     "capture-screenshots": "pwsh -File ../scripts/capture-screenshots.ps1",
     "sync-changelog": "node ../scripts/sync-changelog.js",

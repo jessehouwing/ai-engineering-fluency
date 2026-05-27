@@ -1454,6 +1454,8 @@ type AsuCliState = {
 	defaultEffort: string | null;
 	requestCount: number;
 	effortByRequest: { [effort: string]: number };
+	pendingToolCalls: Map<string, { toolName: string; args: Record<string, string> }>;
+	editedFilePaths: Set<string>;
 };
 
 /** Check if the first JSONL line indicates a delta-based VS Code incremental format. */
@@ -1484,7 +1486,7 @@ function _asuReconstructAndProcessDeltaState(
 /** Check if a selection range represents an actual selection (not just cursor position). */
 function _asuCheckImplicitSelection(selections: unknown[], refs: ContextReferenceUsage): void {
 	for (const sel of selections) {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		 
 		const s = sel as any;
 		if (s && (s.startLineNumber !== s.endLineNumber || s.startColumn !== s.endColumn)) {
 			refs.implicitSelection++;
@@ -1494,7 +1496,7 @@ function _asuCheckImplicitSelection(selections: unknown[], refs: ContextReferenc
 }
 
 /** Handle VS Code incremental format kind=0 (session header) events. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function _asuHandleKind0Event(event: any, analysis: SessionUsageAnalysis, modeState: AsuModeState): void {
 	if (event.kind !== 0 || !event.v?.inputState?.mode) { return; }
 	modeState.sessionMode = getModeType(event.v.inputState.mode);
@@ -1503,7 +1505,7 @@ function _asuHandleKind0Event(event: any, analysis: SessionUsageAnalysis, modeSt
 }
 
 /** Handle VS Code incremental format kind=1 (incremental update) events. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function _asuHandleKind1Event(event: any, analysis: SessionUsageAnalysis, modeState: AsuModeState): void {
 	if (event.kind !== 1) { return; }
 	if (event.k?.includes('mode') && event.v) { modeState.sessionMode = getModeType(event.v); }
@@ -1549,7 +1551,7 @@ function _asuProcessResponseUpdates(items: unknown[], analysis: SessionUsageAnal
 }
 
 /** Process a single request from a kind=2 requests array. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function _asuProcessRequest(request: any, analysis: SessionUsageAnalysis, sessionMode: string): void {
 	if (request.requestId) { incrementModeUsage(sessionMode, analysis.modeUsage); }
 	if (request.agent?.id) {
@@ -1563,7 +1565,7 @@ function _asuProcessRequest(request: any, analysis: SessionUsageAnalysis, sessio
 }
 
 /** Handle VS Code incremental format kind=2 (batch add) events. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function _asuHandleKind2Event(event: any, analysis: SessionUsageAnalysis, modeState: AsuModeState, toolNameMap: { [key: string]: string }): void {
 	if (event.kind !== 2) { return; }
 	if (event.k?.[0] === 'requests' && Array.isArray(event.v)) {
@@ -1588,7 +1590,7 @@ function _asuHandleUserMessageMode(jetBrainsMode: JetBrainsMode | null, analysis
 }
 
 /** Handle Copilot CLI events (session.start, session.model_change, user.message). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function _asuProcessCliEvents(event: any, cliState: AsuCliState, analysis: SessionUsageAnalysis, jetBrainsMode: JetBrainsMode | null): void {
 	if (event.type === 'session.start' && event.data) { _asuHandleSessionStartEvent(event.data as Record<string, unknown>, cliState); }
 	if (event.type === 'session.model_change' && typeof event.data?.newModel === 'string') { cliState.defaultModel = event.data.newModel; }
@@ -1601,7 +1603,7 @@ function _asuProcessCliEvents(event: any, cliState: AsuCliState, analysis: Sessi
 }
 
 /** Handle tool.call / tool.result / tool.execution_start events. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function _asuHandleToolCallEvent(event: any, analysis: SessionUsageAnalysis, toolNameMap: { [key: string]: string }): void {
 	if (event.type !== 'tool.call' && event.type !== 'tool.result' && event.type !== 'tool.execution_start') { return; }
 	const toolName = event.data?.toolName || event.toolName || 'unknown';
@@ -1609,7 +1611,7 @@ function _asuHandleToolCallEvent(event: any, analysis: SessionUsageAnalysis, too
 }
 
 /** Handle mcp.tool.call events and events with data.mcpServer set. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function _asuHandleMcpToolEvent(event: any, analysis: SessionUsageAnalysis): void {
 	if (event.type !== 'mcp.tool.call' && !event.data?.mcpServer) { return; }
 	analysis.mcpTools.total++;
@@ -1621,20 +1623,87 @@ function _asuHandleMcpToolEvent(event: any, analysis: SessionUsageAnalysis): voi
 }
 
 /** Handle tool.call / tool.result / mcp.tool.call events. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function _asuHandleToolAndMcpEvents(event: any, analysis: SessionUsageAnalysis, toolNameMap: { [key: string]: string }): void {
 	_asuHandleToolCallEvent(event, analysis, toolNameMap);
 	_asuHandleMcpToolEvent(event, analysis);
 }
 
+/** Count non-empty lines in text, ignoring a trailing newline. */
+function _asuCountTextLines(text: string): number {
+	if (!text) { return 0; }
+	const lines = text.split('\n');
+	if (lines[lines.length - 1] === '') { lines.pop(); }
+	return lines.length;
+}
+
+/** Ensure editScope is initialized on the analysis object. */
+function _asuEnsureEditScope(analysis: SessionUsageAnalysis): void {
+	if (!analysis.editScope) {
+		analysis.editScope = { singleFileEdits: 0, multiFileEdits: 0, totalEditedFiles: 0, avgFilesPerSession: 0, linesAdded: 0, linesRemoved: 0 };
+	}
+}
+
+/** Handle tool.execution_start for CLI LOC tracking — stores pending tool call args. */
+function _asuHandleToolStart(event: any, cliState: AsuCliState): void {
+	const { toolCallId, toolName, arguments: args } = event.data ?? {};
+	if (toolCallId && (toolName === 'edit' || toolName === 'create') && args) {
+		cliState.pendingToolCalls.set(toolCallId, { toolName, args });
+	}
+}
+
+/** Extract LOC counts from a completed CLI tool call and update editScope. */
+function _asuApplyToolLoc(pending: { toolName: string; args: Record<string, string> }, cliState: AsuCliState, analysis: SessionUsageAnalysis): void {
+	const linesAdded = pending.toolName === 'edit'
+		? _asuCountTextLines(pending.args.new_str ?? '')
+		: _asuCountTextLines(pending.args.file_text ?? '');
+	const linesRemoved = pending.toolName === 'edit' ? _asuCountTextLines(pending.args.old_str ?? '') : 0;
+	_asuEnsureEditScope(analysis);
+	analysis.editScope!.linesAdded = (analysis.editScope!.linesAdded ?? 0) + linesAdded;
+	analysis.editScope!.linesRemoved = (analysis.editScope!.linesRemoved ?? 0) + linesRemoved;
+	const filePath = pending.args.path ?? '';
+	cliState.editedFilePaths.add(filePath);
+	const ext = normalizeExtension(filePath);
+	if (!analysis.editScope!.languageUsage) { analysis.editScope!.languageUsage = {}; }
+	if (!analysis.editScope!.languageUsage[ext]) { analysis.editScope!.languageUsage[ext] = { linesAdded: 0, linesRemoved: 0 }; }
+	analysis.editScope!.languageUsage[ext].linesAdded += linesAdded;
+	analysis.editScope!.languageUsage[ext].linesRemoved += linesRemoved;
+}
+
+/** Handle tool.execution_complete for CLI LOC tracking — applies LOC on success. */
+function _asuHandleToolComplete(event: any, cliState: AsuCliState, analysis: SessionUsageAnalysis): void {
+	const { toolCallId, success } = event.data ?? {};
+	const pending = toolCallId ? cliState.pendingToolCalls.get(toolCallId) : undefined;
+	if (toolCallId) { cliState.pendingToolCalls.delete(toolCallId); }
+	if (pending && success) { _asuApplyToolLoc(pending, cliState, analysis); }
+}
+
+/** Handle tool.execution_start / tool.execution_complete for CLI LOC tracking. */
+function _asuHandleCliLocEvent(event: any, cliState: AsuCliState, analysis: SessionUsageAnalysis): void {
+	if (event.type === 'tool.execution_start') { _asuHandleToolStart(event, cliState); }
+	else if (event.type === 'tool.execution_complete') { _asuHandleToolComplete(event, cliState, analysis); }
+}
+
+/** Finalize editScope file counts from accumulated CLI tool LOC state. */
+function _asuApplyCliLocToEditScope(cliState: AsuCliState, analysis: SessionUsageAnalysis): void {
+	if (cliState.editedFilePaths.size === 0) { return; }
+	_asuEnsureEditScope(analysis);
+	const fileCount = cliState.editedFilePaths.size;
+	analysis.editScope!.totalEditedFiles = fileCount;
+	analysis.editScope!.singleFileEdits = fileCount === 1 ? 1 : 0;
+	analysis.editScope!.multiFileEdits = fileCount > 1 ? 1 : 0;
+	analysis.editScope!.avgFilesPerSession = fileCount;
+}
+
 /** Dispatch a single JSONL event to the appropriate event handlers. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function _asuProcessJsonlEvent(event: any, analysis: SessionUsageAnalysis, modeState: AsuModeState, cliState: AsuCliState, jetBrainsMode: JetBrainsMode | null, toolNameMap: { [key: string]: string }): void {
 	_asuHandleKind0Event(event, analysis, modeState);
 	_asuHandleKind1Event(event, analysis, modeState);
 	_asuHandleKind2Event(event, analysis, modeState, toolNameMap);
 	_asuProcessCliEvents(event, cliState, analysis, jetBrainsMode);
 	_asuHandleToolAndMcpEvents(event, analysis, toolNameMap);
+	_asuHandleCliLocEvent(event, cliState, analysis);
 }
 
 /** Store CLI thinking effort data from the accumulated CLI state. */
@@ -1655,7 +1724,10 @@ async function _asuProcessNonDeltaJsonl(
 	analysis: SessionUsageAnalysis
 ): Promise<void> {
 	const modeState: AsuModeState = { sessionMode: 'ask' };
-	const cliState: AsuCliState = { defaultModel: 'unknown', defaultEffort: null, requestCount: 0, effortByRequest: {} };
+	const cliState: AsuCliState = {
+		defaultModel: 'unknown', defaultEffort: null, requestCount: 0, effortByRequest: {},
+		pendingToolCalls: new Map(), editedFilePaths: new Set(),
+	};
 	const isJetBrains = isJetBrainsSessionPath(sessionFile);
 	const jetBrainsMode: JetBrainsMode | null = isJetBrains ? detectJetBrainsModeFromContent(fileContent) : null;
 
@@ -1667,6 +1739,7 @@ async function _asuProcessNonDeltaJsonl(
 		} catch { /* skip malformed lines */ }
 	}
 
+	_asuApplyCliLocToEditScope(cliState, analysis);
 	_asuApplyCliThinkingEffort(cliState, analysis);
 	await calculateModelSwitching(deps, sessionFile, analysis, fileContent);
 	// Track LOC/edit metrics for CLI sessions (delta path already handles this above)
@@ -1803,7 +1876,7 @@ function _gmusProcessCliShutdownMetrics(
 }
 
 /** Handle an assistant.message event, recording real or estimated output tokens. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function _gmusHandleAssistantMessage(event: any, model: string, state: GmusJsonlState, modelUsage: ModelUsage, deps: GmusDeps): void {
 	const realOutput = typeof event.data?.outputTokens === 'number' ? event.data.outputTokens : 0;
 	if (realOutput > 0) {
@@ -1815,7 +1888,7 @@ function _gmusHandleAssistantMessage(event: any, model: string, state: GmusJsonl
 }
 
 /** Handle a session.shutdown event, accumulating CLI shutdown model metrics into state. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function _gmusHandleShutdownEvent(event: any, state: GmusJsonlState): void {
 	if (!event.data?.modelMetrics) { return; }
 	if (!state.cliShutdownModelUsage) { state.cliShutdownModelUsage = {}; }
@@ -1823,7 +1896,7 @@ function _gmusHandleShutdownEvent(event: any, state: GmusJsonlState): void {
 }
 
 /** Dispatch a CLI-format JSONL event to the appropriate token accumulation handler. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function _gmusProcessCliEventLine(event: any, model: string, state: GmusJsonlState, modelUsage: ModelUsage, deps: GmusDeps): void {
 	if (event.type === 'session.shutdown') {
 		_gmusHandleShutdownEvent(event, state);
@@ -1840,21 +1913,21 @@ function _gmusProcessCliEventLine(event: any, model: string, state: GmusJsonlSta
 }
 
 /** Extract the model identifier from a kind-0 (session header) delta event, or null if absent. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function _gmusExtractKind0Model(event: any): string | null {
 	if (event.kind !== 0) { return null; }
 	return event.v?.selectedModel?.identifier || event.v?.selectedModel?.metadata?.id || event.v?.inputState?.selectedModel?.metadata?.id || null;
 }
 
 /** Extract the model identifier from a kind-2 selectedModel update event, or null if absent. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function _gmusExtractKind2Model(event: any): string | null {
 	if (event.kind !== 2 || event.k?.[0] !== 'selectedModel') { return null; }
 	return event.v?.identifier || event.v?.metadata?.id || null;
 }
 
 /** Update the default model tracked in state based on model-selection events. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function _gmusUpdateDefaultModelFromEvent(event: any, state: GmusJsonlState): void {
 	if (event.type === 'session.start' && typeof event.data?.selectedModel === 'string') {
 		state.defaultModel = event.data.selectedModel;
@@ -1871,7 +1944,7 @@ function _gmusUpdateDefaultModelFromEvent(event: any, state: GmusJsonlState): vo
 }
 
 /** Process a single parsed JSONL event, updating state and model usage. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function _gmusProcessJsonlLine(event: any, state: GmusJsonlState, modelUsage: ModelUsage, deps: GmusDeps): void {
 	if (typeof event.kind === 'number') {
 		state.isDeltaBased = true;
@@ -1892,7 +1965,7 @@ function _gmusParseJsonlLines(lines: string[], modelUsage: ModelUsage, deps: Gmu
 	for (const line of lines) {
 		if (!line.trim()) { continue; }
 		try {
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			 
 			const event: any = JSON.parse(line);
 			_gmusProcessJsonlLine(event, state, modelUsage, deps);
 		} catch { /* skip malformed lines */ }

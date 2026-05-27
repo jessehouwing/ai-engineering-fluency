@@ -100,6 +100,7 @@ type StatusBarShowOption = 'none' | 'today' | 'last30days' | 'currentMonth' | 'b
 type DisplaySettings = {
   showTokens: StatusBarShowOption;
   showCost: StatusBarShowOption;
+  monthlyBudget?: number;
 };
 
 type DiagnosticsData = {
@@ -364,34 +365,30 @@ function getEditorIcon(editor: string): string {
   return ICONS.find(([key]) => lower.includes(key))?.[1] ?? '📝';
 }
 
-function compareSessionFiles(a: SessionFileDetails, b: SessionFileDetails): number {
-  let aNum: number;
-  let bNum: number;
+function getSortValue(file: SessionFileDetails, column: typeof currentSortColumn): number {
+  switch (column) {
+    case 'size': return file.size || 0;
+    case 'tokens': return file.tokens || 0;
+    case 'interactions': return file.interactions || 0;
+    case 'contextRefs': return getTotalContextRefs(file.contextReferences);
+    default: return 0;
+  }
+}
 
+function compareSessionFiles(a: SessionFileDetails, b: SessionFileDetails): number {
   if (currentSortColumn === "lastInteraction") {
     const aVal = a.lastInteraction;
     const bVal = b.lastInteraction;
     if (!aVal && !bVal) { return 0; }
     if (!aVal) { return 1; }
     if (!bVal) { return -1; }
-    aNum = new Date(aVal).getTime();
-    bNum = new Date(bVal).getTime();
-  } else if (currentSortColumn === "size") {
-    aNum = a.size || 0;
-    bNum = b.size || 0;
-  } else if (currentSortColumn === "tokens") {
-    aNum = a.tokens || 0;
-    bNum = b.tokens || 0;
-  } else if (currentSortColumn === "interactions") {
-    aNum = a.interactions || 0;
-    bNum = b.interactions || 0;
-  } else if (currentSortColumn === "contextRefs") {
-    aNum = getTotalContextRefs(a.contextReferences);
-    bNum = getTotalContextRefs(b.contextReferences);
-  } else {
-    return 0;
+    const aNum = new Date(aVal).getTime();
+    const bNum = new Date(bVal).getTime();
+    return currentSortDirection === "desc" ? bNum - aNum : aNum - bNum;
   }
-
+  const aNum = getSortValue(a, currentSortColumn);
+  const bNum = getSortValue(b, currentSortColumn);
+  if (aNum === 0 && bNum === 0) { return 0; }
   return currentSortDirection === "desc" ? bNum - aNum : aNum - bNum;
 }
 
@@ -1160,6 +1157,16 @@ function setupDisplaySettingHandlers(): void {
       const value = (e.target as HTMLSelectElement).value;
       vscode.postMessage({ command: "updateDisplaySetting", key: "display.statusBar.showCost", value });
     });
+
+  document
+    .getElementById("input-monthly-budget")
+    ?.addEventListener("change", (e) => {
+      const input = e.target as HTMLInputElement;
+      const raw = parseFloat(input.value);
+      const value = isNaN(raw) ? 0 : Math.min(99999, Math.max(0, Math.round(raw * 100) / 100));
+      input.value = value.toString();
+      vscode.postMessage({ command: "updateDisplaySetting", key: "display.statusBar.monthlyBudget", value });
+    });
 }
 
 function setupSubtabHandlers(): void {
@@ -1322,44 +1329,51 @@ function setupTabHandlers(): void {
   });
 }
 
+function handleClearCacheClick(target: HTMLElement): void {
+  target.style.background = "#d97706";
+  target.innerHTML = "<span>⏳</span><span>Clearing...</span>";
+  if (target instanceof HTMLButtonElement) {
+    target.disabled = true;
+  }
+  updateCacheNumbers();
+  vscode.postMessage({ command: "clearCache" });
+}
+
+function handleDebugCounterSetClick(target: HTMLElement): void {
+  const key = target.getAttribute("data-key");
+  const row = target.closest("tr");
+  const input = row?.querySelector(".debug-counter-input") as HTMLInputElement | null;
+  if (key && input) {
+    const value = parseInt(input.value, 10);
+    if (!isNaN(value)) {
+      vscode.postMessage({ command: "setDebugCounter", key, value });
+    }
+  }
+}
+
+function handleDebugFlagSetClick(target: HTMLElement): void {
+  const key = target.getAttribute("data-key");
+  const row = target.closest("tr");
+  const input = row?.querySelector(".debug-flag-input") as HTMLInputElement | null;
+  if (key && input) {
+    vscode.postMessage({ command: "setDebugFlag", key, value: input.checked });
+  }
+}
+
 function handleGlobalClickEvent(event: MouseEvent): void {
   const target = event.target as HTMLElement;
-  if (!target) {
-    return;
-  }
-  if (
-    target.id === "btn-clear-cache" ||
-    target.id === "btn-clear-cache-tab"
-  ) {
-    target.style.background = "#d97706";
-    target.innerHTML = "<span>⏳</span><span>Clearing...</span>";
-    if (target instanceof HTMLButtonElement) {
-      target.disabled = true;
-    }
-    updateCacheNumbers();
-    vscode.postMessage({ command: "clearCache" });
+  if (!target) { return; }
+  if (target.id === "btn-clear-cache" || target.id === "btn-clear-cache-tab") {
+    handleClearCacheClick(target);
   }
   if (target.id === "btn-reset-debug-counters") {
     vscode.postMessage({ command: "resetDebugCounters" });
   }
   if (target.classList.contains("debug-counter-set")) {
-    const key = target.getAttribute("data-key");
-    const row = target.closest("tr");
-    const input = row?.querySelector(".debug-counter-input") as HTMLInputElement | null;
-    if (key && input) {
-      const value = parseInt(input.value, 10);
-      if (!isNaN(value)) {
-        vscode.postMessage({ command: "setDebugCounter", key, value });
-      }
-    }
+    handleDebugCounterSetClick(target);
   }
   if (target.classList.contains("debug-flag-set")) {
-    const key = target.getAttribute("data-key");
-    const row = target.closest("tr");
-    const input = row?.querySelector(".debug-flag-input") as HTMLInputElement | null;
-    if (key && input) {
-      vscode.postMessage({ command: "setDebugFlag", key, value: input.checked });
-    }
+    handleDebugFlagSetClick(target);
   }
 }
 
@@ -1449,93 +1463,75 @@ function setupButtonHandlers(): void {
   wireNavButtons();
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DiagMessage = Record<string, any>;
 
-function handleDiagnosticDataLoaded(message: DiagMessage): void {
-  if (message.report) {
-    const reportTabContent = document.getElementById("tab-report");
-    if (reportTabContent) {
-      const processedReport = removeSessionFilesSection(message.report);
-      const reportPre = reportTabContent.querySelector(".report-content");
-      if (reportPre) {
-        reportPre.textContent = processedReport;
-      }
-    }
-  }
+function handleDiagnosticReport(message: DiagMessage): void {
+  if (!message.report) { return; }
+  const reportTabContent = document.getElementById("tab-report");
+  if (!reportTabContent) { return; }
+  const processedReport = removeSessionFilesSection(message.report);
+  const reportPre = reportTabContent.querySelector(".report-content");
+  if (reportPre) { reportPre.textContent = processedReport; }
+}
 
-  if (message.backendStorageInfo) {
-    currentBackendInfo = message.backendStorageInfo;
-    if (message.githubAuth !== undefined) {
-      currentGithubAuth = message.githubAuth;
-    }
-    const backendTabContent = document.getElementById("tab-backend");
-    if (backendTabContent) {
-      const activeSubtabEl = backendTabContent.querySelector(".subtab.active") as HTMLElement | null;
-      const previousSubtab = activeSubtabEl?.getAttribute("data-subtab")
-        ?? diagState.restore().activeSubtab;
-
-      backendTabContent.innerHTML = renderBackendStoragePanel(
-        currentBackendInfo,
-        currentGithubAuth,
-      );
-      setupBackendButtonHandlers();
-      setupSubtabHandlers();
-
-      if (previousSubtab) {
-        activateSubtab(previousSubtab);
-        diagState.patch({ activeSubtab: previousSubtab });
-      }
-    }
-  } else {
+function handleBackendStorageSection(message: DiagMessage): void {
+  if (!message.backendStorageInfo) {
     console.warn("diagnosticDataLoaded received but backendStorageInfo is missing or undefined");
+    return;
   }
-
-  if (message.sessionFolders && message.sessionFolders.length > 0) {
-    const reportTabContent = document.getElementById("tab-report");
-    if (reportTabContent) {
-      const grouped = groupSessionFolders(message.sessionFolders as SessionFolder[]);
-      const foldersEl = buildSessionFoldersElement(grouped);
-
-      const existing = reportTabContent.querySelector(".session-folders-table");
-      if (existing) {
-        existing.replaceWith(foldersEl);
-      } else {
-        const reportContent = reportTabContent.querySelector(".report-content");
-        if (reportContent) {
-          reportContent.insertAdjacentElement("afterend", foldersEl);
-        } else {
-          reportTabContent.appendChild(foldersEl);
-        }
-      }
-      setupStorageLinkHandlers();
-    }
+  currentBackendInfo = message.backendStorageInfo;
+  if (message.githubAuth !== undefined) { currentGithubAuth = message.githubAuth; }
+  const backendTabContent = document.getElementById("tab-backend");
+  if (!backendTabContent) { return; }
+  const activeSubtabEl = backendTabContent.querySelector(".subtab.active") as HTMLElement | null;
+  const previousSubtab = activeSubtabEl?.getAttribute("data-subtab") ?? diagState.restore().activeSubtab;
+  backendTabContent.innerHTML = renderBackendStoragePanel(currentBackendInfo, currentGithubAuth);
+  setupBackendButtonHandlers();
+  setupSubtabHandlers();
+  if (previousSubtab) {
+    activateSubtab(previousSubtab);
+    diagState.patch({ activeSubtab: previousSubtab });
   }
+}
 
-  if (message.candidatePaths && message.candidatePaths.length > 0) {
-    const reportTabContent = document.getElementById("tab-report");
-    if (reportTabContent) {
-      const existing = reportTabContent.querySelector(".candidate-paths-table");
-      if (existing) {
-        existing.remove();
-      }
-
-      const candidateEl = buildCandidatePathsElement(message.candidatePaths);
-
-      const foldersTable = reportTabContent.querySelector(".session-folders-table");
-      if (foldersTable) {
-        foldersTable.insertAdjacentElement("afterend", candidateEl);
-      } else {
-        const reportContent = reportTabContent.querySelector(".report-content");
-        if (reportContent) {
-          reportContent.insertAdjacentElement("afterend", candidateEl);
-        } else {
-          reportTabContent.appendChild(candidateEl);
-        }
-      }
-    }
+function handleSessionFoldersSection(message: DiagMessage): void {
+  if (!message.sessionFolders || message.sessionFolders.length === 0) { return; }
+  const reportTabContent = document.getElementById("tab-report");
+  if (!reportTabContent) { return; }
+  const grouped = groupSessionFolders(message.sessionFolders as SessionFolder[]);
+  const foldersEl = buildSessionFoldersElement(grouped);
+  const existing = reportTabContent.querySelector(".session-folders-table");
+  if (existing) {
+    existing.replaceWith(foldersEl);
+  } else {
+    const reportContent = reportTabContent.querySelector(".report-content");
+    if (reportContent) { reportContent.insertAdjacentElement("afterend", foldersEl); }
+    else { reportTabContent.appendChild(foldersEl); }
   }
+  setupStorageLinkHandlers();
+}
 
+function handleCandidatePathsSection(message: DiagMessage): void {
+  if (!message.candidatePaths || message.candidatePaths.length === 0) { return; }
+  const reportTabContent = document.getElementById("tab-report");
+  if (!reportTabContent) { return; }
+  reportTabContent.querySelector(".candidate-paths-table")?.remove();
+  const candidateEl = buildCandidatePathsElement(message.candidatePaths);
+  const foldersTable = reportTabContent.querySelector(".session-folders-table");
+  if (foldersTable) {
+    foldersTable.insertAdjacentElement("afterend", candidateEl);
+  } else {
+    const reportContent = reportTabContent.querySelector(".report-content");
+    if (reportContent) { reportContent.insertAdjacentElement("afterend", candidateEl); }
+    else { reportTabContent.appendChild(candidateEl); }
+  }
+}
+
+function handleDiagnosticDataLoaded(message: DiagMessage): void {
+  handleDiagnosticReport(message);
+  handleBackendStorageSection(message);
+  handleSessionFoldersSection(message);
+  handleCandidatePathsSection(message);
   if (message.githubAuth !== undefined) {
     const githubTabContent = document.getElementById("tab-github");
     if (githubTabContent) {
@@ -1622,39 +1618,23 @@ function handleCacheCleared(): void {
   }, 2000);
 }
 
+function updateCacheSummaryCards(cacheInfo: any, summaryCards: NodeListOf<Element>): void {
+  if (summaryCards.length < 4) { return; }
+  const entriesValue = summaryCards[0]?.querySelector(".summary-value");
+  if (entriesValue) { entriesValue.textContent = String(cacheInfo.size); }
+  const sizeValue = summaryCards[1]?.querySelector(".summary-value");
+  if (sizeValue) { sizeValue.textContent = `${cacheInfo.sizeInMB.toFixed(2)} MB`; }
+  const lastUpdatedValue = summaryCards[2]?.querySelector(".summary-value");
+  if (lastUpdatedValue) { lastUpdatedValue.textContent = new Date(cacheInfo.lastUpdated).toLocaleString(); }
+  const ageValue = summaryCards[3]?.querySelector(".summary-value");
+  if (ageValue) { ageValue.textContent = "0 seconds ago"; }
+}
+
 function handleCacheRefreshed(message: DiagMessage): void {
-  if (message.cacheInfo) {
-    const cacheInfo = message.cacheInfo;
-    const cacheTabContent = document.getElementById("tab-cache");
-    if (cacheTabContent) {
-      const summaryCards =
-        cacheTabContent.querySelectorAll(".summary-card");
-      if (summaryCards.length >= 4) {
-        const entriesValue =
-          summaryCards[0]?.querySelector(".summary-value");
-        if (entriesValue) {
-          entriesValue.textContent = String(cacheInfo.size);
-        }
-
-        const sizeValue = summaryCards[1]?.querySelector(".summary-value");
-        if (sizeValue) {
-          sizeValue.textContent = `${cacheInfo.sizeInMB.toFixed(2)} MB`;
-        }
-
-        const lastUpdatedValue =
-          summaryCards[2]?.querySelector(".summary-value");
-        if (lastUpdatedValue) {
-          const date = new Date(cacheInfo.lastUpdated);
-          lastUpdatedValue.textContent = date.toLocaleString();
-        }
-
-        const ageValue = summaryCards[3]?.querySelector(".summary-value");
-        if (ageValue) {
-          ageValue.textContent = "0 seconds ago";
-        }
-      }
-    }
-  }
+  if (!message.cacheInfo) { return; }
+  const cacheTabContent = document.getElementById("tab-cache");
+  if (!cacheTabContent) { return; }
+  updateCacheSummaryCards(message.cacheInfo, cacheTabContent.querySelectorAll(".summary-card"));
 }
 
 function handleFolderPicked(message: DiagMessage): void {
@@ -1779,6 +1759,7 @@ function sel(current: string, value: string): string {
 function renderDiagDisplayTabHtml(data: DiagnosticsData): string {
   const showTokens = data.displaySettings?.showTokens ?? 'both';
   const showCost = data.displaySettings?.showCost ?? 'none';
+  const monthlyBudget = Math.round((data.displaySettings?.monthlyBudget ?? 0) * 100) / 100;
   return `
 <div id="tab-display" class="tab-content">
 <div class="info-box">
@@ -1815,6 +1796,17 @@ Choose what to show in the VS Code status bar toolbar. You can show token counts
 </div>
 </div>
 <p style="color: #888; font-size: 11px; margin-top: 12px;">Cost is estimated using GitHub Copilot AI-Credit rates (Usage Based Billing). Changes apply to the status bar immediately.</p>
+</div>
+<div class="backend-card">
+<h4 style="color: #fff; font-size: 14px; margin-bottom: 12px;">💰 Monthly Budget</h4>
+<p style="color: #ccc; margin-bottom: 16px;">
+Set a monthly AI spend budget in USD to get visual alerts on the status bar. The bar turns yellow at 75%, orange at 90%, and red at 100% of your budget. Set to 0 to disable.
+</p>
+<div style="display: flex; align-items: center; gap: 12px;">
+  <label style="color: #ccc; min-width: 160px; font-size: 13px;">💵 Monthly budget (USD):</label>
+  <input id="input-monthly-budget" type="number" min="0" max="99999" step="0.01" value="${monthlyBudget}" style="background: #2d2d2d; color: #ccc; border: 1px solid #555; border-radius: 4px; padding: 4px 8px; font-size: 13px; width: 100px;" />
+</div>
+<p style="color: #888; font-size: 11px; margin-top: 12px;">Budget coloring uses the current calendar month's estimated cost. Set to 0 to disable.</p>
 </div>
 <div class="backend-card">
 <h4 style="color: #fff; font-size: 14px; margin-bottom: 12px;">🔢 Number Formatting</h4>

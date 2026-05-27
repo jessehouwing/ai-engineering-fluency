@@ -371,6 +371,9 @@ class CopilotTokenTracker implements vscode.Disposable {
 	// Flag to track if details panel is currently showing the loading screen
 	private _detailsPanelIsLoading = false;
 
+	// Editor list captured during the last (or current) log analysis, used to render the loading tooltip SVG
+	private _loadingEditors: { icon: string; name: string }[] = [];
+
 	// Cache mapping workspaceStorageId -> resolved workspace folder path (or undefined if not resolvable)
 	private _workspaceIdToFolderCache: Map<string, string | undefined> = new Map();
 
@@ -1608,7 +1611,9 @@ class CopilotTokenTracker implements vscode.Disposable {
 			const { last30DaysStartMs, lastMonthStartMs } = computeUtcDateRanges(new Date());
 			const fileLoadCutoffMs = Math.min(last30DaysStartMs, lastMonthStartMs);
 
+			this._loadingEditors = [];
 			this.sendLoadingPanelMessage({ command: 'loadingStep', step: 'discovering' });
+			if (!silent && !this._detailsPanelIsLoading) { this.statusBarItem.tooltip = this.buildLoadingTooltipMarkdown('discovering'); }
 
 			// Streaming pipeline: discovery and parsing run concurrently.
 			// Workers start processing files as each adapter batch arrives.
@@ -1619,6 +1624,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 			const { sessionFiles, preloaded } = await this._preloadSessionFiles(fileLoadCutoffMs, progressCallback, discoveredEditorSet);
 
 			this.sendLoadingPanelMessage({ command: 'loadingStep', step: 'computing' });
+			if (!silent && !this._detailsPanelIsLoading) { this.statusBarItem.tooltip = this.buildLoadingTooltipMarkdown('computing'); }
 
 			const { stats: detailedStats, dailyStats } = await this.calculateDetailedStats(undefined, preloaded);
 			this.lastDailyStats = dailyStats;
@@ -1657,14 +1663,29 @@ class CopilotTokenTracker implements vscode.Disposable {
 		if (silent) { return undefined; }
 		let parsingStepNotified = false;
 		let lastProgressSentMs = 0;
+		let lastTooltipPctBucket = -1;
 		return (completed: number, total: number) => {
 			const percentage = Math.round((completed / total) * 100);
 			this.setStatusBarText(`$(loading~spin) Analyzing Logs: ${percentage}%`);
 			if (!parsingStepNotified) {
 				parsingStepNotified = true;
 				const editors = getEditors?.() ?? [];
+				this._loadingEditors = editors;
 				const msg: Record<string, unknown> = { command: 'loadingStep', step: 'parsing', total, editors };
 				this.sendLoadingPanelMessage(msg);
+				// Update tooltip once when parsing starts (editors are now known).
+				// Skip entirely when the loading panel is already open — no need to double up.
+				if (!this._detailsPanelIsLoading) {
+					this.statusBarItem.tooltip = this.buildLoadingTooltipMarkdown('parsing', percentage > 0 ? percentage : undefined);
+				}
+			}
+			// Update tooltip at each 10% boundary to show real progress.
+			// Using buckets (not raw %) prevents multiple updates at the same threshold.
+			// Skip when the loading panel is open — the panel already shows progress.
+			const pctBucket = Math.floor(percentage / 10);
+			if (!this._detailsPanelIsLoading && pctBucket > lastTooltipPctBucket && percentage > 0) {
+				lastTooltipPctBucket = pctBucket;
+				this.statusBarItem.tooltip = this.buildLoadingTooltipMarkdown('parsing', percentage);
 			}
 			const now = Date.now();
 			if (now - lastProgressSentMs >= 500 || completed === total) {
@@ -1700,6 +1721,134 @@ class CopilotTokenTracker implements vscode.Disposable {
 			this.setStatusBarText(this.buildStatusBarText(detailedStats));
 		}
 		this.statusBarItem.tooltip = this.buildTooltipMarkdown(detailedStats);
+		this.updateStatusBarBackgroundColor(detailedStats);
+	}
+
+	private buildLoadingTooltipMarkdown(step: 'discovering' | 'parsing' | 'computing', percentage?: number): vscode.MarkdownString {
+		const svg = this.generateLoadingSvg(step, this._loadingEditors, percentage);
+		const tooltip = new vscode.MarkdownString(`![Loading](data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)})`);
+		tooltip.isTrusted = true;
+		tooltip.supportThemeIcons = false;
+		return tooltip;
+	}
+
+	// eslint-disable-next-line max-lines-per-function, complexity, sonarjs/cognitive-complexity
+	private generateLoadingSvg(
+		step: 'discovering' | 'parsing' | 'computing',
+		editors: { icon: string; name: string }[],
+		percentage?: number
+	): string {
+		const W = 440, P = 16;
+		const BG   = '#181825', CARD  = '#24273a', FG  = '#cdd6f4';
+		const MUT  = '#9399b2', ACC   = '#89b4fa', OK  = '#a6e3a1';
+		const BRD  = '#313244';
+		const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
+		const esc  = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+		const doneUntil  = step === 'discovering' ? 0 : step === 'parsing' ? 2 : 3;
+		const activeStep = step === 'discovering' ? 0 : step === 'parsing' ? 2 : 3;
+		const STEPS = [
+			'Discovering session files', 'Checking cache',
+			'Parsing session logs',      'Computing statistics', 'Ready!',
+		];
+		const pct     = step === 'computing' ? 96 : (percentage ?? 0);
+		const pctTxt  = step === 'computing' ? '96%' : (percentage !== undefined && percentage > 0 ? `${percentage}%` : '–');
+		const subtitle =
+			step === 'discovering' ? 'Discovering session files...' :
+			step === 'parsing'     ? 'Parsing session files...'     :
+			                         'Computing statistics...';
+		const pills   = editors.slice(0, 6);
+
+		// Layout — always reserve pills row so height never changes between phases
+		const BY    = P + 13;
+		const TY    = BY + 20;
+		const SBY   = TY + 16;
+		const PRY   = SBY + 16;
+		const PRH   = 5;
+		const PIL_Y = PRY + PRH + 8;
+		const SBX_Y = PIL_Y + 34;  // 28px pills height + 6px gap, always reserved
+		const SBX_H = P + STEPS.length * 22 + 8;
+		const H     = SBX_Y + SBX_H + P;
+		const PW    = W - P * 2;
+
+		const o: string[] = [];
+		o.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+		o.push(`<defs>
+  <linearGradient id="pg" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0%" stop-color="${ACC}"/>
+    <stop offset="100%" stop-color="${OK}"/>
+  </linearGradient>
+  <clipPath id="pclip"><rect x="${P}" y="${PRY}" width="${PW}" height="${PRH}" rx="2.5"/></clipPath>
+</defs>`);
+
+		// Card background
+		o.push(`<rect width="${W}" height="${H}" rx="10" fill="${BG}" stroke="${BRD}"/>`);
+
+		// Badge
+		o.push(`<text x="${P}" y="${BY}" font-family="${FONT}" font-size="10" font-weight="700" letter-spacing="1.5" fill="${ACC}">🤖 ANALYZING YOUR AI ACTIVITY</text>`);
+
+		// Title + large pct display
+		o.push(`<text x="${P}" y="${TY}" font-family="${FONT}" font-size="17" font-weight="700" fill="${FG}">Building Activity Index</text>`);
+		o.push(`<text x="${W - P}" y="${TY}" text-anchor="end" font-family="${FONT}" font-size="26" font-weight="800" fill="${FG}">${esc(pctTxt)}</text>`);
+
+		// Subtitle
+		o.push(`<text x="${P}" y="${SBY}" font-family="${FONT}" font-size="11" fill="${MUT}">${esc(subtitle)}</text>`);
+
+		// Progress track
+		o.push(`<rect x="${P}" y="${PRY}" width="${PW}" height="${PRH}" rx="2.5" fill="${BRD}"/>`);
+
+		// Progress fill — shimmer (indeterminate) during discovering/early parsing, solid fill when progress is known
+		if (step !== 'computing' && pct === 0) {
+			const sw = Math.round(PW * 0.25);
+			o.push(`<rect y="${PRY}" width="${sw}" height="${PRH}" rx="2.5" fill="url(#pg)" clip-path="url(#pclip)">
+  <animate attributeName="x" from="${P - Math.round(PW * 0.35)}" to="${P + Math.round(PW * 1.1)}" dur="1.8s" repeatCount="indefinite" calcMode="ease-in-out"/>
+</rect>`);
+		} else {
+			const fw = Math.max(8, Math.round((pct / 100) * PW));
+			o.push(`<rect x="${P}" y="${PRY}" width="${fw}" height="${PRH}" rx="2.5" fill="url(#pg)"/>`);
+		}
+
+		// Editor pills
+		if (pills.length > 0) {
+			let px = P;
+			for (const ed of pills) {
+				const rawLbl = `${ed.icon} ${ed.name}`;
+				const pw2    = Math.min(Math.max([...rawLbl].length * 7 + 16, 64), 130);
+				if (px + pw2 > W - P) { break; }
+				o.push(`<rect x="${px}" y="${PIL_Y}" width="${pw2}" height="22" rx="11" fill="${CARD}" stroke="${BRD}"/>`);
+				o.push(`<text x="${px + pw2 / 2}" y="${PIL_Y + 15}" text-anchor="middle" font-family="${FONT}" font-size="10.5" fill="${FG}">${esc(rawLbl)}</text>`);
+				px += Math.round(pw2) + 6;
+			}
+		}
+
+		// Steps box
+		o.push(`<rect x="${P}" y="${SBX_Y}" width="${PW}" height="${SBX_H}" rx="8" fill="${CARD}" stroke="${BRD}"/>`);
+
+		const ICX = P + P + 4;
+		const LBX = ICX + 18;
+		let sy = SBX_Y + P + 8;
+		for (let i = 0; i < STEPS.length; i++) {
+			const done   = i < doneUntil;
+			const active = i === activeStep;
+			const col    = done ? OK : active ? ACC : MUT;
+			const wt     = active ? '600' : '400';
+			const lbl    = STEPS[i];
+
+			if (done) {
+				o.push(`<text x="${ICX}" y="${sy}" text-anchor="middle" font-family="monospace" font-size="13" fill="${OK}">✓</text>`);
+			} else if (active) {
+				// Spinning ↻ via SMIL animateTransform around the glyph centre
+				const cy = sy - 4;
+				o.push(`<text x="${ICX}" y="${sy}" text-anchor="middle" font-family="monospace" font-size="13" fill="${ACC}">↻<animateTransform attributeName="transform" type="rotate" values="0 ${ICX} ${cy};360 ${ICX} ${cy}" dur="0.75s" repeatCount="indefinite" additive="sum"/></text>`);
+			} else {
+				o.push(`<text x="${ICX}" y="${sy}" text-anchor="middle" font-size="13" fill="${MUT}">○</text>`);
+			}
+			o.push(`<text x="${LBX}" y="${sy}" font-family="${FONT}" font-size="12" font-weight="${wt}" fill="${col}">${esc(lbl)}</text>`);
+			sy += 22;
+		}
+
+		o.push('</svg>');
+		return o.join('');
 	}
 
 	private buildTooltipMarkdown(detailedStats: DetailedStats): vscode.MarkdownString {
@@ -1727,8 +1876,12 @@ class CopilotTokenTracker implements vscode.Disposable {
 		tooltip.appendMarkdown(`| Average interactions/session :      | ${detailedStats.last30Days.avgInteractionsPerSession} |\n`);
 		tooltip.appendMarkdown(`| Average tokens/session :            | ${detailedStats.last30Days.avgTokensPerSession.toLocaleString()} |\n`);
 		tooltip.appendMarkdown('\n---\n');
-		tooltip.appendMarkdown('*(UBB) = Copilot AI Credit rates — what Copilot will bill you under Usage Based Billing.*  \n');
-		tooltip.appendMarkdown('*Updates automatically every 5 minutes.*');
+		const budget = this.getMonthlyBudgetSetting();
+		if (budget > 0) {
+			const monthCost = detailedStats.month.estimatedCostCopilot ?? detailedStats.month.estimatedCost ?? 0;
+			const pct = Math.round((monthCost / budget) * 100);
+			tooltip.appendMarkdown(`\n---\n💰 Monthly budget: $${budget.toFixed(2)} — this month: $${monthCost.toFixed(2)} (${pct}%)`);
+		}
 		return tooltip;
 	}
 
@@ -1753,7 +1906,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 		if (!this.chartPanel || (!this.lastFullDailyStats && !this.lastDailyStats)) { return; }
 		const chartStats = this.lastFullDailyStats ?? this.lastDailyStats!;
 		if (silent) {
-			void this.chartPanel.webview.postMessage({ command: 'updateChartData', data: { ...this.buildChartData(chartStats), compactNumbers: this.getCompactNumbersSetting() } });
+			void this.chartPanel.webview.postMessage({ command: 'updateChartData', data: { ...this.buildChartData(chartStats), compactNumbers: this.getCompactNumbersSetting(), monthlyBudget: this.getMonthlyBudgetSetting() } });
 		} else {
 			this.chartPanel.webview.html = this.getChartHtml(this.chartPanel.webview, chartStats);
 		}
@@ -2047,6 +2200,30 @@ class CopilotTokenTracker implements vscode.Disposable {
 		return vscode.workspace.getConfiguration('aiEngineeringFluency.display.statusBar').get<StatusBarDisplaySetting>('showCost', 'none');
 	}
 
+	private getMonthlyBudgetSetting(): number {
+		return vscode.workspace.getConfiguration('aiEngineeringFluency.display.statusBar').get<number>('monthlyBudget', 0);
+	}
+
+	/** Updates the status bar background color based on current-month spend vs. the configured budget.
+	 *  Uses VS Code's built-in theme colors: warning (yellow) at ≥75%, error (red/orange) at ≥90%.
+	 *  Clears the background when no budget is configured or spend is below 75%. */
+	private updateStatusBarBackgroundColor(stats: DetailedStats): void {
+		const budget = this.getMonthlyBudgetSetting();
+		if (budget <= 0) {
+			this.statusBarItem.backgroundColor = undefined;
+			return;
+		}
+		const monthCost = stats.month.estimatedCostCopilot ?? stats.month.estimatedCost ?? 0;
+		const ratio = monthCost / budget;
+		if (ratio >= 0.90) {
+			this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+		} else if (ratio >= 0.75) {
+			this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+		} else {
+			this.statusBarItem.backgroundColor = undefined;
+		}
+	}
+
 	private buildTokenParts(show: StatusBarDisplaySetting, stats: DetailedStats): string[] {
 		const parts: string[] = [];
 		if (show === 'today' || show === 'both' || show === 'todayAndCurrentMonth') {
@@ -2094,8 +2271,9 @@ class CopilotTokenTracker implements vscode.Disposable {
 	private refreshOpenPanelsForSettingChange(): void {
 		const stats = this.lastDetailedStats;
 		if (!stats) { return; }
-		// Refresh status bar text (respects new display settings)
+		// Refresh status bar text and background color (respects new display settings)
 		this.setStatusBarText(this.buildStatusBarText(stats));
+		this.updateStatusBarBackgroundColor(stats);
 		if (this.detailsPanel) {
 			this.detailsPanel.webview.html = this.getDetailsHtml(this.detailsPanel.webview, stats);
 		}
@@ -4192,6 +4370,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 		if (!stats) {
 			this.log('No cached stats — showing loading screen while calculating...');
 			this._detailsPanelIsLoading = true;
+			this.statusBarItem.tooltip = 'AI Engineering Fluency — loading in panel…';
 			this.detailsPanel.webview.html = this.getLoadingHtml(this.detailsPanel.webview);
 
 			stats = await this.updateTokenStats();
@@ -6011,7 +6190,7 @@ ${this.getLoadingHtmlBody(nonce)}
     --bg-secondary: var(--vscode-sideBar-background, #181825);
     --bg-card: var(--vscode-editorWidget-background, #24273a);
     --text-primary: var(--vscode-editor-foreground, #cdd6f4);
-    --text-muted: var(--vscode-disabledForeground, #6c7086);
+    --text-muted: var(--vscode-descriptionForeground, #9399b2);
     --accent: var(--vscode-textLink-foreground, #89b4fa);
     --success: var(--vscode-terminal-ansiGreen, #a6e3a1);
     --border: var(--vscode-panel-border, #313244);
@@ -6496,9 +6675,16 @@ ${this.getLoadingHtmlScript()}
     const fullKeyMap: Record<string, string> = {
       'display.statusBar.showTokens': 'aiEngineeringFluency.display.statusBar.showTokens',
       'display.statusBar.showCost': 'aiEngineeringFluency.display.statusBar.showCost',
+      'display.statusBar.monthlyBudget': 'aiEngineeringFluency.display.statusBar.monthlyBudget',
     };
     const fullKey = fullKeyMap[key];
-    if (fullKey) { await vscode.workspace.getConfiguration().update(fullKey, value, vscode.ConfigurationTarget.Global); }
+    if (!fullKey) { return; }
+    let sanitised: any = value;
+    if (key === 'display.statusBar.monthlyBudget') {
+      const n = typeof value === 'number' ? value : parseFloat(value);
+      sanitised = isNaN(n) ? 0 : Math.min(99999, Math.max(0, Math.round(n * 100) / 100));
+    }
+    await vscode.workspace.getConfiguration().update(fullKey, sanitised, vscode.ConfigurationTarget.Global);
   }
 
   private async diagHandleResetDebugCounters(): Promise<void> {
@@ -6861,7 +7047,7 @@ ${this.getLoadingHtmlScript()}
       report, sessionFiles, detailedSessionFiles, sessionFolders,
       cacheInfo, backendStorageInfo,
       backendConfigured: this.isBackendConfigured(), isDebugMode, globalStateCounters,
-      displaySettings: { showTokens: this.getStatusBarShowTokensSetting(), showCost: this.getStatusBarShowCostSetting() },
+      displaySettings: { showTokens: this.getStatusBarShowTokensSetting(), showCost: this.getStatusBarShowCostSetting(), monthlyBudget: this.getMonthlyBudgetSetting() },
     }).replace(/</g, "\\u003c");
 
     return `<!DOCTYPE html>
@@ -6949,7 +7135,7 @@ ${this.getLoadingHtmlScript()}
       vscode.Uri.joinPath(this.extensionUri, "dist", "webview", "chart.js"),
     );
 
-    const chartData = { ...this.buildChartData(dailyStats), periodsReady, initialPeriod: this.lastChartPeriod, initialView: this.lastChartView, initialMetric: this.lastChartMetric, initialSplit: this.lastChartSplit };
+    const chartData = { ...this.buildChartData(dailyStats), periodsReady, initialPeriod: this.lastChartPeriod, initialView: this.lastChartView, initialMetric: this.lastChartMetric, initialSplit: this.lastChartSplit, monthlyBudget: this.getMonthlyBudgetSetting() };
 
     const initialData = JSON.stringify(chartData).replace(/</g, "\\u003c");
 
