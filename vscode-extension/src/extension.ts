@@ -168,6 +168,8 @@ import {
 	fetchRepoPrs,
 	fetchCopilotPlanInfo,
 	fetchCopilotTokenEndpointInfo,
+	fetchUserEnterprises,
+	fetchEnterprisePremiumBudgets,
 	type CopilotPlanInfo,
 	type RepoPrDetail,
 	type RepoPrInfo,
@@ -1549,6 +1551,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 	/**
 	 * Fetch and log Copilot plan information and token endpoint metadata for the authenticated user.
 	 * Both API calls run in parallel so all Copilot info is logged together as a single grouped block.
+	 * For enterprise plans, also discovers the enterprise slug and checks the premium request budget.
 	 * Best-effort: each call is independent — a failure in one does not suppress the other.
 	 */
 	private async loadAndLogCopilotPlanInfo(): Promise<void> {
@@ -1561,10 +1564,12 @@ class CopilotTokenTracker implements vscode.Disposable {
 
 		// Log plan info
 		const { planInfo, statusCode: planStatus, error: planError } = planResult;
+		let isEnterprisePlan = false;
 		if (planError || !planInfo) {
 			this.warn(`Copilot plan info unavailable (HTTP ${planStatus ?? 'n/a'}): ${planError ?? 'no data'}`);
 		} else {
 			const planId = planInfo.copilot_plan as string | undefined;
+			isEnterprisePlan = (planId ?? '').toLowerCase().includes('enterprise');
 			const plans = copilotPlansData.plans as Record<string, { name: string; monthlyPremiumRequests: number | null; monthlyPricePerUser: number; monthlyAiCreditsUsd: number }>;
 			const knownPlan = planId ? plans[planId] : undefined;
 			const planLabel = knownPlan ? `${knownPlan.name} (${planId})` : (planId ?? 'unknown');
@@ -1580,6 +1585,61 @@ class CopilotTokenTracker implements vscode.Disposable {
 			if (info.endpoints?.api) { this.log(`  Copilot API endpoint: ${info.endpoints.api}`); }
 			if (info.expires_at !== undefined) { this.log(`  Copilot token valid until: ${new Date(info.expires_at * 1000).toISOString()}`); }
 			if (info.sku) { this.log(`  Copilot SKU: ${info.sku}`); }
+		}
+
+		// For enterprise plans: discover enterprise and check premium request budget
+		if (isEnterprisePlan) {
+			await this.loadAndLogEnterpriseInfo();
+		}
+	}
+
+	/**
+	 * Discover which enterprise the user belongs to and fetch the premium request budget.
+	 * Uses GraphQL viewer.enterprises and the enterprise billing/budgets endpoint.
+	 * Best-effort: requires enterprise admin or billing manager for budget data.
+	 */
+	private async loadAndLogEnterpriseInfo(): Promise<void> {
+		if (!this.githubSession) { return; }
+
+		const { enterprises, error: entError } = await fetchUserEnterprises(this.githubSession.accessToken);
+		if (entError || !enterprises?.length) {
+			this.warn(`Enterprise discovery unavailable: ${entError ?? 'no enterprises found'}`);
+			return;
+		}
+
+		const username = this.githubSession.account.label;
+		this.log(`  Enterprise(s): ${enterprises.map((e) => `${e.name} (${e.slug})`).join(', ')}`);
+
+		// Fetch budget for each enterprise in parallel
+		const budgetResults = await Promise.all(
+			enterprises.map((e) =>
+				fetchEnterprisePremiumBudgets(e.slug, username, this.githubSession!.accessToken)
+					.then((r) => ({ enterprise: e, ...r }))
+					.catch((err) => ({ enterprise: e, error: String(err) }))
+			)
+		);
+
+		for (const result of budgetResults) {
+			const { enterprise, budgets, statusCode, error } = result as { enterprise: { slug: string; name: string }; budgets?: any[]; statusCode?: number; error?: string };
+			if (error) {
+				// 403 means the user isn't an admin/billing manager — log quietly
+				const isForbidden = statusCode === 403 || error.includes('403');
+				if (isForbidden) {
+					this.log(`  Budget (${enterprise.slug}): not accessible (requires enterprise admin or billing manager)`);
+				} else {
+					this.warn(`  Budget fetch failed for ${enterprise.slug} (HTTP ${statusCode ?? 'n/a'}): ${error}`);
+				}
+				continue;
+			}
+			if (!budgets?.length) {
+				this.log(`  Budget (${enterprise.slug}): no premium request budgets configured`);
+				continue;
+			}
+			for (const budget of budgets) {
+				const amount = budget.budget_amount !== undefined ? `$${budget.budget_amount}` : 'n/a';
+				const block = budget.prevent_further_usage ? ', blocks usage' : '';
+				this.log(`  Budget (${enterprise.slug}): ${amount}/month${block} [${budget.budget_scope ?? 'unknown scope'}]`);
+			}
 		}
 	}
 

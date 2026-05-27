@@ -1,6 +1,6 @@
 import * as https from 'https';
 import * as childProcess from 'child_process';
-import { GITHUB_API_HOSTNAME, GITHUB_API_USER_AGENT, GITHUB_API_ACCEPT_V3 } from './githubApiConfig';
+import { GITHUB_API_HOSTNAME, GITHUB_API_USER_AGENT, GITHUB_API_ACCEPT_V3, GITHUB_API_VERSION } from './githubApiConfig';
 
 export type RepoPrDetail = {
 	number: number;
@@ -183,6 +183,144 @@ export function fetchCopilotTokenEndpointInfo(
 	fetcher: (token: string) => Promise<CopilotTokenEndpointResult> = fetchCopilotTokenEndpointInfoPage,
 ): Promise<CopilotTokenEndpointResult> {
 	return fetcher(token);
+}
+
+// ---------------------------------------------------------------------------
+// Enterprise membership discovery (GraphQL)
+// ---------------------------------------------------------------------------
+
+export type EnterpriseInfo = { slug: string; name: string };
+export type UserEnterprisesResult = { enterprises?: EnterpriseInfo[]; error?: string };
+
+/** Discover enterprises the authenticated user belongs to via the GitHub GraphQL API. */
+export function fetchUserEnterprises(
+	token: string,
+	fetcher: (token: string) => Promise<UserEnterprisesResult> = fetchUserEnterprisesPage,
+): Promise<UserEnterprisesResult> {
+	return fetcher(token);
+}
+
+function fetchUserEnterprisesPage(token: string): Promise<UserEnterprisesResult> {
+	const query = JSON.stringify({
+		query: '{ viewer { enterprises(first: 10, membershipType: ALL) { nodes { slug name } } } }',
+	});
+	return new Promise((resolve) => {
+		const req = https.request(
+			{
+				hostname: GITHUB_API_HOSTNAME,
+				path: '/graphql',
+				method: 'POST',
+				headers: {
+					Authorization: `Bearer ${token}`,
+					'User-Agent': GITHUB_API_USER_AGENT,
+					'Content-Type': 'application/json',
+					'Content-Length': Buffer.byteLength(query),
+				},
+			},
+			(res) => {
+				let data = '';
+				res.on('data', (chunk) => (data += chunk));
+				res.on('end', () => {
+					const statusCode = res.statusCode ?? 0;
+					if (statusCode < 200 || statusCode >= 300) {
+						resolve({ error: `HTTP ${statusCode}` });
+						return;
+					}
+					try {
+						const parsed = JSON.parse(data);
+						const nodes = parsed?.data?.viewer?.enterprises?.nodes;
+						if (!Array.isArray(nodes)) {
+							const gqlError = parsed?.errors?.[0]?.message;
+							resolve({ error: gqlError ?? 'Unexpected response format' });
+							return;
+						}
+						resolve({ enterprises: nodes as EnterpriseInfo[] });
+					} catch (e) {
+						resolve({ error: String(e) });
+					}
+				});
+			},
+		);
+		req.on('error', (e) => resolve({ error: e.message }));
+		req.setTimeout(15000, () => {
+			req.destroy(new Error('Request timed out after 15 s'));
+		});
+		req.write(query);
+		req.end();
+	});
+}
+
+// ---------------------------------------------------------------------------
+// Enterprise premium request budget
+// ---------------------------------------------------------------------------
+
+export type EnterpriseBudgetEntry = {
+	id?: string;
+	budget_amount?: number;
+	prevent_further_usage?: boolean;
+	budget_scope?: string;
+	budget_product_skus?: string[];
+	[key: string]: unknown;
+};
+export type EnterpriseBudgetResult = { budgets?: EnterpriseBudgetEntry[]; statusCode?: number; error?: string };
+
+/**
+ * Fetch enterprise billing budgets filtered for premium requests for a specific user.
+ * Requires the authenticated user to be an enterprise admin or billing manager.
+ * Best-effort — returns an error on 403/404 for non-admin users.
+ */
+export function fetchEnterprisePremiumBudgets(
+	enterpriseSlug: string,
+	username: string,
+	token: string,
+	fetcher: (slug: string, username: string, token: string) => Promise<EnterpriseBudgetResult> = fetchEnterprisePremiumBudgetsPage,
+): Promise<EnterpriseBudgetResult> {
+	return fetcher(enterpriseSlug, username, token);
+}
+
+function fetchEnterprisePremiumBudgetsPage(enterpriseSlug: string, username: string, token: string): Promise<EnterpriseBudgetResult> {
+	const params = new URLSearchParams({ user: username, budgetTarget: 'premium_req' });
+	return new Promise((resolve) => {
+		const req = https.request(
+			{
+				hostname: GITHUB_API_HOSTNAME,
+				path: `/enterprises/${encodeURIComponent(enterpriseSlug)}/settings/billing/budgets?${params}`,
+				headers: {
+					Authorization: `Bearer ${token}`,
+					'User-Agent': GITHUB_API_USER_AGENT,
+					Accept: GITHUB_API_ACCEPT_V3,
+					'X-GitHub-Api-Version': GITHUB_API_VERSION,
+				},
+			},
+			(res) => {
+				let data = '';
+				res.on('data', (chunk) => (data += chunk));
+				res.on('end', () => {
+					const statusCode = res.statusCode ?? 0;
+					if (statusCode < 200 || statusCode >= 300) {
+						resolve({ statusCode, error: `HTTP ${statusCode}` });
+						return;
+					}
+					try {
+						const parsed = JSON.parse(data);
+						const budgets = parsed?.budgets ?? (Array.isArray(parsed) ? parsed : undefined);
+						if (budgets === undefined) {
+							resolve({ statusCode, error: 'Unexpected response format' });
+							return;
+						}
+						resolve({ budgets, statusCode });
+					} catch (e) {
+						resolve({ statusCode, error: String(e) });
+					}
+				});
+			},
+		);
+		req.on('error', (e) => resolve({ error: e.message }));
+		req.setTimeout(15000, () => {
+			req.destroy(new Error('Request timed out after 15 s'));
+		});
+		req.end();
+	});
 }
 
 /** Detect which AI system a GitHub login belongs to, or null if not an AI bot. */
