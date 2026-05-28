@@ -4784,7 +4784,10 @@ Return ONLY the JSON object, no markdown formatting, no explanations.`;
 	}
 
 	private async invokeCopilotModel(prompt: string): Promise<string> {
-		const models = await vscode.lm.selectChatModels({ vendor: 'copilot', family: 'gpt-4o' });
+		let models = await vscode.lm.selectChatModels({ vendor: 'copilot', family: 'gpt-4o' });
+		if (models.length === 0) {
+			models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+		}
 		if (models.length === 0) {
 			throw new Error('No Copilot models available. Please ensure GitHub Copilot is installed and activated.');
 		}
