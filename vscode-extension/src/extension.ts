@@ -1876,7 +1876,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 		tooltip.appendMarkdown(`| Average interactions/session :      | ${detailedStats.last30Days.avgInteractionsPerSession} |\n`);
 		tooltip.appendMarkdown(`| Average tokens/session :            | ${detailedStats.last30Days.avgTokensPerSession.toLocaleString()} |\n`);
 		tooltip.appendMarkdown('\n---\n');
-		const budget = this.getMonthlyBudgetSetting();
+		const budget = this.getEffectiveMonthlyBudget();
 		if (budget > 0) {
 			const monthCost = detailedStats.month.estimatedCostCopilot ?? detailedStats.month.estimatedCost ?? 0;
 			const pct = Math.round((monthCost / budget) * 100);
@@ -1906,7 +1906,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 		if (!this.chartPanel || (!this.lastFullDailyStats && !this.lastDailyStats)) { return; }
 		const chartStats = this.lastFullDailyStats ?? this.lastDailyStats!;
 		if (silent) {
-			void this.chartPanel.webview.postMessage({ command: 'updateChartData', data: { ...this.buildChartData(chartStats), compactNumbers: this.getCompactNumbersSetting(), monthlyBudget: this.getMonthlyBudgetSetting() } });
+			void this.chartPanel.webview.postMessage({ command: 'updateChartData', data: { ...this.buildChartData(chartStats), compactNumbers: this.getCompactNumbersSetting(), monthlyBudget: this.getEffectiveMonthlyBudget() } });
 		} else {
 			this.chartPanel.webview.html = this.getChartHtml(this.chartPanel.webview, chartStats);
 		}
@@ -2204,11 +2204,19 @@ class CopilotTokenTracker implements vscode.Disposable {
 		return vscode.workspace.getConfiguration('aiEngineeringFluency.display.statusBar').get<number>('monthlyBudget', 0);
 	}
 
+	/** Returns the effective monthly budget: the explicitly configured value if set, otherwise falls back
+	 *  to the monthly AI credits included with the user's Copilot plan (derived from license info). */
+	private getEffectiveMonthlyBudget(): number {
+		const configured = this.getMonthlyBudgetSetting();
+		if (configured > 0) { return configured; }
+		return this._copilotPlanResolved?.monthlyAiCreditsUsd ?? 0;
+	}
+
 	/** Updates the status bar background color based on current-month spend vs. the configured budget.
 	 *  Uses VS Code's built-in theme colors: warning (yellow) at ≥75%, error (red/orange) at ≥90%.
 	 *  Clears the background when no budget is configured or spend is below 75%. */
 	private updateStatusBarBackgroundColor(stats: DetailedStats): void {
-		const budget = this.getMonthlyBudgetSetting();
+		const budget = this.getEffectiveMonthlyBudget();
 		if (budget <= 0) {
 			this.statusBarItem.backgroundColor = undefined;
 			return;
@@ -7136,7 +7144,7 @@ ${this.getLoadingHtmlScript()}
       vscode.Uri.joinPath(this.extensionUri, "dist", "webview", "chart.js"),
     );
 
-    const chartData = { ...this.buildChartData(dailyStats), periodsReady, initialPeriod: this.lastChartPeriod, initialView: this.lastChartView, initialMetric: this.lastChartMetric, initialSplit: this.lastChartSplit, monthlyBudget: this.getMonthlyBudgetSetting() };
+    const chartData = { ...this.buildChartData(dailyStats), periodsReady, initialPeriod: this.lastChartPeriod, initialView: this.lastChartView, initialMetric: this.lastChartMetric, initialSplit: this.lastChartSplit, monthlyBudget: this.getEffectiveMonthlyBudget() };
 
     const initialData = JSON.stringify(chartData).replace(/</g, "\\u003c");
 
