@@ -130,7 +130,8 @@ try { await fs.promises.access(sessionPath); results.push(sessionPath); } catch 
 /**
  * Supplement log discovery by scanning common development root directories
  * for `.vs/<solution>/copilot-chat/<hash>/sessions/<uuid>` paths.
- * Scans: user home dir, and common named dev roots (C:\repos, C:\code, etc.).
+ * Scans known named dev subdirs under home and common drive-root dev dirs.
+ * Does NOT scan all of home — that would walk AppData and other heavy dirs.
  * Depth-limited and skips known heavy directories to stay fast.
  *
  * Visual Studio only runs on Windows — skip entirely on macOS/Linux to avoid
@@ -139,30 +140,40 @@ try { await fs.promises.access(sessionPath); results.push(sessionPath); } catch 
 private async _discoverFromFilesystem(seen: Set<string>, results: string[]): Promise<void> {
 if (os.platform() !== 'win32') { return; }
 const home = os.homedir();
-// Drive letter(s): default to C, also try D if it exists
 const drives = ['C', 'D'];
+const roots: string[] = [];
 
-const roots: string[] = [home];
+// Scan only known dev folder names directly under home, not all of home.
+// Scanning all of home at depth 7 would include AppData, .copilot, etc. — very slow.
+const devFolderNames = ['code', 'repos', 'src', 'projects', 'dev', 'workspace', 'work', 'source'];
+for (const name of devFolderNames) {
+const p = path.join(home, name);
+try { await fs.promises.access(p); roots.push(p); } catch { /* ok */ }
+}
+// Also check Documents/<devfolder> — common on Windows
+for (const name of devFolderNames) {
+const p = path.join(home, 'Documents', name);
+try { await fs.promises.access(p); roots.push(p); } catch { /* ok */ }
+}
 
 // Add common named dev roots at drive root
 for (const drive of drives) {
-for (const name of ['repos', 'code', 'src', 'projects', 'dev']) {
+for (const name of devFolderNames) {
 const p = drive + ':\\' + name;
 try { await fs.promises.access(p); roots.push(p); } catch { /* ok */ }
 }
 }
 
 for (const root of roots) {
-// For home dir, allow depth 7 (home/code/repos/org/project/.vs/...)
-// For explicit dev roots, allow depth 5
-const maxDepth = root === home ? 7 : 5;
-await this._scanForVsDirs(root, 0, maxDepth, seen, results);
+await this._scanForVsDirs(root, 0, 5, seen, results);
 }
 }
 
 /**
  * Recursively scan for `.vs` directories starting from `dir`, up to `maxDepth`.
  * When a `.vs` directory is found, scan it for Copilot Chat session files.
+ * Uses Promise.all at each level — safe because roots are bounded named dev dirs,
+ * not the entire home directory. Max 8 concurrent ops per level to bound FD pressure.
  */
 private async _scanForVsDirs(
 dir: string, depth: number, maxDepth: number,
@@ -177,25 +188,25 @@ entries = await fs.promises.readdir(dir, { withFileTypes: true });
 return;
 }
 
-for (const entry of entries) {
-if (!entry.isDirectory()) { continue; }
+const dirs = entries.filter(e => {
+if (!e.isDirectory()) { return false; }
+const name = e.name;
+if (SCAN_SKIP_DIRS.has(name)) { return false; }
+if (name.startsWith('.') && name !== '.vs') { return false; }
+return true;
+});
 
-const name = entry.name;
-
-// Skip heavy / non-project directories
-if (SCAN_SKIP_DIRS.has(name)) { continue; }
-// Skip other hidden dirs (but NOT .vs — that's what we're looking for)
-if (name.startsWith('.') && name !== '.vs') { continue; }
-
-const fullPath = path.join(dir, name);
-
-if (name === '.vs') {
-// Found a .vs directory — look inside for copilot-chat sessions
+// Process in batches of 8 to bound FD pressure
+const batchSize = 8;
+for (let i = 0; i < dirs.length; i += batchSize) {
+await Promise.all(dirs.slice(i, i + batchSize).map(async entry => {
+const fullPath = path.join(dir, entry.name);
+if (entry.name === '.vs') {
 await this._findSessionsInVsDir(fullPath, seen, results);
-// Do NOT recurse further into .vs itself
 } else {
 await this._scanForVsDirs(fullPath, depth + 1, maxDepth, seen, results);
 }
+}));
 }
 }
 
