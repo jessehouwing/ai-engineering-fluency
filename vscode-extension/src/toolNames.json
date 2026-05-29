@@ -642,6 +642,7 @@
   ,"mcp_microsoft-lea_microsoft_docs_search": "Microsoft Docs MCP (Remote): Search Docs"
   ,"mcp_upstash_conte_query-docs": "MCP Upstash: Query Docs"
   ,"mcp_upstash_conte_resolve-library-id": "MCP Upstash: Resolve Library ID"
+  ,"mcp__Bicep__list_avm_metadata": "MCP  Bicep: List Azure Verified Module Metadata"
   ,"google_research": "Google Research"
   ,"task_execution": "Task Execution"
   ,"tool_search_tool_regex": "Tool Search"
