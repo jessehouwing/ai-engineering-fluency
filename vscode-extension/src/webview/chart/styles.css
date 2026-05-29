@@ -222,3 +222,82 @@ body {
 .toggle.disabled:hover {
 	background: var(--button-secondary-bg);
 }
+
+/* Language Heatmap */
+.heatmap-container {
+	position: relative;
+	min-height: 420px;
+	overflow: auto;
+}
+
+.heatmap-wrap {
+	width: 100%;
+	min-height: 380px;
+	display: flex;
+	flex-direction: column;
+}
+
+.heatmap-empty {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-muted);
+	font-size: 13px;
+	min-height: 380px;
+}
+
+.heatmap-table {
+	border-collapse: separate;
+	border-spacing: 2px;
+	width: 100%;
+	table-layout: fixed;
+}
+
+.heatmap-lang-header {
+	width: 80px;
+	min-width: 80px;
+}
+
+.heatmap-date-header {
+	height: 56px;
+	vertical-align: bottom;
+	padding: 0;
+	text-align: center;
+}
+
+.heatmap-date-header span {
+	display: inline-block;
+	transform: rotate(-50deg);
+	transform-origin: center bottom;
+	white-space: nowrap;
+	font-size: 9px;
+	color: var(--text-secondary);
+	font-weight: 400;
+}
+
+.heatmap-lang-label {
+	text-align: right;
+	padding-right: 8px;
+	font-size: 11px;
+	color: var(--text-secondary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 80px;
+	height: 18px;
+}
+
+.heatmap-data-cell {
+	border-radius: 3px;
+	cursor: default;
+	height: 18px;
+	min-width: 12px;
+	transition: opacity 0.1s ease;
+}
+
+.heatmap-data-cell:hover {
+	opacity: 0.75;
+	outline: 1px solid rgba(75, 192, 192, 0.6);
+	outline-offset: -1px;
+}

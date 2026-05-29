@@ -300,8 +300,10 @@ function renderLayout(data: InitialChartData): void {
 	chartSectionHeader.append(el('h3', '', '📊 Charts'), buildPeriodToggles(data.periodsReady !== false));
 	const canvasWrap = el('div', 'canvas-wrap');
 	const canvas = document.createElement('canvas'); canvas.id = 'token-chart'; canvasWrap.append(canvas);
+	const heatmapContainer = el('div', 'heatmap-container hidden');
+	heatmapContainer.id = 'heatmap-container';
 	const chartShell = el('div', 'chart-shell');
-	chartShell.append(buildChartControls(data), canvasWrap);
+	chartShell.append(buildChartControls(data), canvasWrap, heatmapContainer);
 	const chartSection = el('div', 'section');
 	chartSection.append(chartSectionHeader, chartShell);
 	const footer = el('div', 'footer',
@@ -478,6 +480,7 @@ async function setupChart(canvas: HTMLCanvasElement, data: InitialChartData): Pr
 	pendingMetric = null;
 	pendingSplit = null;
 	pendingPeriod = null;
+	refreshHeatmapView(data);
 }
 
 async function switchPeriod(period: ChartPeriod, data: InitialChartData): Promise<void> {
@@ -489,6 +492,8 @@ async function switchPeriod(period: ChartPeriod, data: InitialChartData): Promis
 	saveWebviewState();
 	setActivePeriod(period);
 	updateSummaryCards(data);
+	refreshHeatmapView(data);
+	if (isHeatmapView()) { return; }
 	if (!chart) {
 		return;
 	}
@@ -530,7 +535,22 @@ async function switchMetric(metric: typeof currentMetric, data: InitialChartData
 		rollingBtnEl.classList.toggle('active', rollingApplicable && currentDisplayMode === 'rolling');
 	}
 	updateSummaryCards(data);
-	if (!chart) { return; }
+	refreshHeatmapView(data);
+	if (isHeatmapView()) {
+		if (chart) { chart.destroy(); chart = undefined; }
+		return;
+	}
+	if (!chart) {
+		// May have come from heatmap view with no active chart — get canvas from DOM
+		const canvasEl = document.getElementById('token-chart') as HTMLCanvasElement | null;
+		if (!canvasEl) { return; }
+		await loadChartModule();
+		if (!Chart) { return; }
+		const ctx = canvasEl.getContext('2d');
+		if (!ctx) { return; }
+		chart = new Chart(ctx, createConfig(data));
+		return;
+	}
 	const canvas = chart.canvas as HTMLCanvasElement | null;
 	chart.destroy();
 	if (!canvas) { return; }
@@ -548,7 +568,22 @@ function isSplitSupported(metric: typeof currentMetric, split: typeof currentSpl
 }
 
 async function reinitChart(data: InitialChartData): Promise<void> {
-	if (!chart) { return; }
+	refreshHeatmapView(data);
+	if (isHeatmapView()) {
+		if (chart) { chart.destroy(); chart = undefined; }
+		return;
+	}
+	if (!chart) {
+		// May have come from heatmap view with no active chart — get canvas from DOM
+		const canvasEl = document.getElementById('token-chart') as HTMLCanvasElement | null;
+		if (!canvasEl) { return; }
+		await loadChartModule();
+		if (!Chart) { return; }
+		const ctx = canvasEl.getContext('2d');
+		if (!ctx) { return; }
+		chart = new Chart(ctx, createConfig(data));
+		return;
+	}
 	const canvas = chart.canvas as HTMLCanvasElement | null;
 	chart.destroy();
 	if (!canvas) { return; }
@@ -748,6 +783,86 @@ function buildOutputViewConfig(view: string, period: ChartPeriodData, baseOption
 			scales: { x: { stacked, grid: { color: c.gridColor }, ticks: { color: c.textColor, font: { size: 11 } } }, y: { stacked, grid: { color: c.gridColor }, ticks: { color: c.textColor, font: { size: 11 }, callback: (value: any) => Math.abs(Number(value)).toLocaleString() }, title: { display: true, text: 'Lines of Code', color: c.textColor, font: { size: 12, weight: 'bold' } } } }
 		}
 	};
+}
+
+function getHeatmapColor(value: number, maxValue: number): string {
+	if (maxValue === 0 || value === 0) { return 'rgba(128, 128, 128, 0.06)'; }
+	const f = Math.min(value / maxValue, 1);
+	const r = Math.round(54 + (75 - 54) * f);
+	const g = Math.round(162 + (192 - 162) * f);
+	const b = Math.round(235 + (192 - 235) * f);
+	const a = (0.15 + 0.85 * f).toFixed(2);
+	return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
+function buildLanguageHeatmap(period: ChartPeriodData): HTMLElement {
+	const datasets = (period.languageDatasets ?? []) as ModelDataset[];
+	const withTotals = datasets
+		.map(ds => ({ label: ds.label, data: ds.data as number[], total: (ds.data as number[]).reduce((a, b) => a + b, 0) }))
+		.filter(ds => ds.total > 0)
+		.sort((a, b) => b.total - a.total)
+		.slice(0, 20);
+	const labels = period.labels;
+	const wrap = el('div', 'heatmap-wrap');
+	if (!withTotals.length) {
+		wrap.append(el('div', 'heatmap-empty', 'No language data for this period.'));
+		return wrap;
+	}
+	const maxValue = Math.max(...withTotals.flatMap(ds => ds.data));
+	const table = document.createElement('table');
+	table.className = 'heatmap-table';
+	const thead = document.createElement('thead');
+	const headerRow = document.createElement('tr');
+	const cornerTh = document.createElement('th');
+	cornerTh.className = 'heatmap-lang-header';
+	headerRow.append(cornerTh);
+	labels.forEach(label => {
+		const th = document.createElement('th');
+		th.className = 'heatmap-date-header';
+		const span = document.createElement('span');
+		span.textContent = label;
+		th.append(span);
+		headerRow.append(th);
+	});
+	thead.append(headerRow);
+	table.append(thead);
+	const tbody = document.createElement('tbody');
+	withTotals.forEach(ds => {
+		const tr = document.createElement('tr');
+		const langTd = document.createElement('td');
+		langTd.className = 'heatmap-lang-label';
+		langTd.textContent = ds.label;
+		tr.append(langTd);
+		ds.data.forEach((value, i) => {
+			const td = document.createElement('td');
+			td.className = 'heatmap-data-cell';
+			td.style.backgroundColor = getHeatmapColor(value, maxValue);
+			if (value > 0) {
+				td.title = `${ds.label} · ${labels[i]}: ${value.toLocaleString()} lines`;
+			}
+			tr.append(td);
+		});
+		tbody.append(tr);
+	});
+	table.append(tbody);
+	wrap.append(table);
+	return wrap;
+}
+
+function isHeatmapView(): boolean {
+	return currentMetric === 'output' && currentSplit === 'language';
+}
+
+function refreshHeatmapView(data: InitialChartData): void {
+	const canvasWrap = document.querySelector('.canvas-wrap') as HTMLElement | null;
+	const heatmapContainer = document.getElementById('heatmap-container');
+	if (!canvasWrap || !heatmapContainer) { return; }
+	const show = isHeatmapView();
+	canvasWrap.classList.toggle('hidden', show);
+	heatmapContainer.classList.toggle('hidden', !show);
+	if (show) {
+		heatmapContainer.replaceChildren(buildLanguageHeatmap(getActivePeriodData(data)));
+	}
 }
 
 function buildStackedViewConfig(view: string, period: ChartPeriodData, baseOptions: ReturnType<typeof buildBaseOptions>, c: ChartColors): ChartConfig {
