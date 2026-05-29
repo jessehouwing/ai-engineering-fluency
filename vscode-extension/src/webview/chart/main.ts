@@ -779,12 +779,11 @@ function buildOutputViewConfig(view: string, period: ChartPeriodData, baseOption
 
 function getHeatmapColor(value: number, maxValue: number): string {
 	if (maxValue === 0 || value === 0) { return 'rgba(128, 128, 128, 0.06)'; }
-	// Log scale so small-but-non-zero values still get a visible colour (avoids
-	// everything looking the same when one spike dominates the linear range).
+	// Log scale, dark forest green → bright green accent (#22c55e)
 	const f = Math.log1p(value) / Math.log1p(maxValue);
-	const r = Math.round(28 - 28 * f);
-	const g = Math.round(120 + (220 - 120) * f);
-	const b = Math.round(200 + (180 - 200) * f);
+	const r = Math.round(5 + (34 - 5) * f);
+	const g = Math.round(60 + (197 - 60) * f);
+	const b = Math.round(30 + (94 - 30) * f);
 	const a = (0.55 + 0.45 * f).toFixed(2);
 	return `rgba(${r}, ${g}, ${b}, ${a})`;
 }

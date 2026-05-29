@@ -227,8 +227,7 @@ body {
 .heatmap-container {
 	position: relative;
 	min-height: 420px;
-	overflow-y: auto;
-	overflow-x: hidden;
+	overflow: auto;
 }
 
 .heatmap-wrap {
@@ -236,6 +235,7 @@ body {
 	min-height: 380px;
 	display: flex;
 	flex-direction: column;
+	padding-top: 8px;
 }
 
 .heatmap-empty {
@@ -250,7 +250,7 @@ body {
 
 .heatmap-table {
 	border-collapse: separate;
-	border-spacing: 1px;
+	border-spacing: 3px;
 	width: 100%;
 	table-layout: fixed;
 }
@@ -261,22 +261,24 @@ body {
 }
 
 .heatmap-date-header {
-	height: 52px;
+	height: 56px;
 	vertical-align: bottom;
-	padding: 0;
+	padding: 0 0 2px 0;
 	text-align: center;
-	overflow: hidden;
 }
 
 .heatmap-date-header span {
-	display: inline-block;
-	transform: rotate(-50deg);
-	transform-origin: center bottom;
+	display: block;
+	writing-mode: vertical-lr;
+	transform: rotate(180deg);
 	white-space: nowrap;
 	font-size: 10px;
 	color: var(--text-primary);
 	font-weight: 500;
 	opacity: 0.85;
+	max-height: 54px;
+	overflow: hidden;
+	margin: 0 auto;
 }
 
 .heatmap-lang-label {
@@ -288,18 +290,18 @@ body {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	max-width: 72px;
-	height: 18px;
+	height: 22px;
 }
 
 .heatmap-data-cell {
 	border-radius: 3px;
 	cursor: default;
-	height: 18px;
+	height: 22px;
 	transition: opacity 0.1s ease;
 }
 
 .heatmap-data-cell:hover {
 	opacity: 0.75;
-	outline: 1px solid rgba(75, 192, 192, 0.6);
+	outline: 1px solid rgba(34, 197, 94, 0.7);
 	outline-offset: -1px;
 }
