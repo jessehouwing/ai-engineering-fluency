@@ -81,25 +81,25 @@ return path.join(localAppData, 'Microsoft', 'SSMS');
  * or log files cleaned up by system temp cleaner).
  * SSMS: dedicated scan of %LOCALAPPDATA%\Microsoft\SSMS\ for SSMSGitHubCopilot sessions.
  */
-discoverSessions(): string[] {
+async discoverSessions(): Promise<string[]> {
 const seen = new Set<string>();
 const sessionFiles: string[] = [];
 
-this._discoverFromLogs(seen, sessionFiles);
-this._discoverFromFilesystem(seen, sessionFiles);
-this._discoverFromSsmsAppData(seen, sessionFiles);
+await this._discoverFromLogs(seen, sessionFiles);
+await this._discoverFromFilesystem(seen, sessionFiles);
+await this._discoverFromSsmsAppData(seen, sessionFiles);
 
 return sessionFiles;
 }
 
 /** Parse *.chat.log files in the VS temp log dir for "Updating session file" entries. */
-private _discoverFromLogs(seen: Set<string>, results: string[]): void {
+private async _discoverFromLogs(seen: Set<string>, results: string[]): Promise<void> {
 const logDir = this.getLogDir();
-if (!fs.existsSync(logDir)) { return; }
 
 let logFiles: string[];
 try {
-logFiles = fs.readdirSync(logDir)
+const entries = await fs.promises.readdir(logDir);
+logFiles = entries
 .filter(f => f.endsWith('.chat.log'))
 .map(f => path.join(logDir, f));
 } catch {
@@ -110,20 +110,20 @@ const pattern = /Updating session file '([^']+)'/;
 
 for (const logFile of logFiles) {
 try {
-const content = fs.readFileSync(logFile, 'utf8');
-this._processLogFileLines(content, pattern, seen, results);
+const content = await fs.promises.readFile(logFile, 'utf8');
+await this._processLogFileLines(content, pattern, seen, results);
 } catch { /* ignore file read errors */ }
 }
 }
 
-private _processLogFileLines(content: string, pattern: RegExp, seen: Set<string>, results: string[]): void {
+private async _processLogFileLines(content: string, pattern: RegExp, seen: Set<string>, results: string[]): Promise<void> {
 for (const line of content.split('\n')) {
 const m = pattern.exec(line);
 if (!m) { continue; }
 const sessionPath = m[1];
 if (seen.has(sessionPath)) { continue; }
 seen.add(sessionPath);
-try { if (fs.existsSync(sessionPath)) { results.push(sessionPath); } } catch { /* ignore */ }
+try { await fs.promises.access(sessionPath); results.push(sessionPath); } catch { /* ignore */ }
 }
 }
 
@@ -136,7 +136,7 @@ try { if (fs.existsSync(sessionPath)) { results.push(sessionPath); } } catch { /
  * Visual Studio only runs on Windows — skip entirely on macOS/Linux to avoid
  * a deep recursive home-directory walk that causes the extension to hang.
  */
-private _discoverFromFilesystem(seen: Set<string>, results: string[]): void {
+private async _discoverFromFilesystem(seen: Set<string>, results: string[]): Promise<void> {
 if (os.platform() !== 'win32') { return; }
 const home = os.homedir();
 // Drive letter(s): default to C, also try D if it exists
@@ -148,7 +148,7 @@ const roots: string[] = [home];
 for (const drive of drives) {
 for (const name of ['repos', 'code', 'src', 'projects', 'dev']) {
 const p = drive + ':\\' + name;
-try { if (fs.existsSync(p)) { roots.push(p); } } catch { /* ok */ }
+try { await fs.promises.access(p); roots.push(p); } catch { /* ok */ }
 }
 }
 
@@ -156,7 +156,7 @@ for (const root of roots) {
 // For home dir, allow depth 7 (home/code/repos/org/project/.vs/...)
 // For explicit dev roots, allow depth 5
 const maxDepth = root === home ? 7 : 5;
-this._scanForVsDirs(root, 0, maxDepth, seen, results);
+await this._scanForVsDirs(root, 0, maxDepth, seen, results);
 }
 }
 
@@ -164,15 +164,15 @@ this._scanForVsDirs(root, 0, maxDepth, seen, results);
  * Recursively scan for `.vs` directories starting from `dir`, up to `maxDepth`.
  * When a `.vs` directory is found, scan it for Copilot Chat session files.
  */
-private _scanForVsDirs(
+private async _scanForVsDirs(
 dir: string, depth: number, maxDepth: number,
 seen: Set<string>, results: string[]
-): void {
+): Promise<void> {
 if (depth > maxDepth) { return; }
 
 let entries: fs.Dirent[];
 try {
-entries = fs.readdirSync(dir, { withFileTypes: true });
+entries = await fs.promises.readdir(dir, { withFileTypes: true });
 } catch {
 return;
 }
@@ -191,17 +191,17 @@ const fullPath = path.join(dir, name);
 
 if (name === '.vs') {
 // Found a .vs directory — look inside for copilot-chat sessions
-this._findSessionsInVsDir(fullPath, seen, results);
+await this._findSessionsInVsDir(fullPath, seen, results);
 // Do NOT recurse further into .vs itself
 } else {
-this._scanForVsDirs(fullPath, depth + 1, maxDepth, seen, results);
+await this._scanForVsDirs(fullPath, depth + 1, maxDepth, seen, results);
 }
 }
 }
 
-private _collectFromSessionsDir(sessionsDir: string, seen: Set<string>, results: string[]): void {
+private async _collectFromSessionsDir(sessionsDir: string, seen: Set<string>, results: string[]): Promise<void> {
 let sessionFiles: fs.Dirent[];
-try { sessionFiles = fs.readdirSync(sessionsDir, { withFileTypes: true }); } catch { return; }
+try { sessionFiles = await fs.promises.readdir(sessionsDir, { withFileTypes: true }); } catch { return; }
 for (const sf of sessionFiles) {
 if (!sf.isFile()) { continue; }
 const fullPath = path.join(sessionsDir, sf.name);
@@ -211,12 +211,12 @@ results.push(fullPath);
 }
 }
 
-private _collectFromHashDirs(copilotChatDir: string, seen: Set<string>, results: string[]): void {
+private async _collectFromHashDirs(copilotChatDir: string, seen: Set<string>, results: string[]): Promise<void> {
 let hashDirs: fs.Dirent[];
-try { hashDirs = fs.readdirSync(copilotChatDir, { withFileTypes: true }); } catch { return; }
+try { hashDirs = await fs.promises.readdir(copilotChatDir, { withFileTypes: true }); } catch { return; }
 for (const hashDir of hashDirs) {
 if (!hashDir.isDirectory()) { continue; }
-this._collectFromSessionsDir(path.join(copilotChatDir, hashDir.name, 'sessions'), seen, results);
+await this._collectFromSessionsDir(path.join(copilotChatDir, hashDir.name, 'sessions'), seen, results);
 }
 }
 
@@ -224,15 +224,15 @@ this._collectFromSessionsDir(path.join(copilotChatDir, hashDir.name, 'sessions')
  * Given a `.vs` directory, find all `copilot-chat/<hash>/sessions/<uuid>` files.
  * Pattern: `.vs/<solution-dir>/copilot-chat/<hash>/sessions/<file>`
  */
-private _findSessionsInVsDir(vsDir: string, seen: Set<string>, results: string[]): void {
+private async _findSessionsInVsDir(vsDir: string, seen: Set<string>, results: string[]): Promise<void> {
 let solutionDirs: fs.Dirent[];
 try {
-solutionDirs = fs.readdirSync(vsDir, { withFileTypes: true });
+solutionDirs = await fs.promises.readdir(vsDir, { withFileTypes: true });
 } catch { return; }
 
 for (const sol of solutionDirs) {
 if (!sol.isDirectory()) { continue; }
-this._collectFromHashDirs(path.join(vsDir, sol.name, 'copilot-chat'), seen, results);
+await this._collectFromHashDirs(path.join(vsDir, sol.name, 'copilot-chat'), seen, results);
 }
 }
 
@@ -241,19 +241,18 @@ this._collectFromHashDirs(path.join(vsDir, sol.name, 'copilot-chat'), seen, resu
  * Pattern: SSMS\<version>\SSMSGitHubCopilot\copilot-chat\<hash>\sessions\<uuid>
  * SSMS only runs on Windows — skip on other platforms.
  */
-private _discoverFromSsmsAppData(seen: Set<string>, results: string[]): void {
+private async _discoverFromSsmsAppData(seen: Set<string>, results: string[]): Promise<void> {
 if (os.platform() !== 'win32') { return; }
 const ssmsDir = this.getSsmsSessionsDir();
-if (!fs.existsSync(ssmsDir)) { return; }
 
 let versionDirs: fs.Dirent[];
 try {
-versionDirs = fs.readdirSync(ssmsDir, { withFileTypes: true });
+versionDirs = await fs.promises.readdir(ssmsDir, { withFileTypes: true });
 } catch { return; }
 
 for (const versionDir of versionDirs) {
 if (!versionDir.isDirectory()) { continue; }
-this._collectFromHashDirs(path.join(ssmsDir, versionDir.name, 'SSMSGitHubCopilot', 'copilot-chat'), seen, results);
+await this._collectFromHashDirs(path.join(ssmsDir, versionDir.name, 'SSMSGitHubCopilot', 'copilot-chat'), seen, results);
 }
 }
 
@@ -262,9 +261,9 @@ this._collectFromHashDirs(path.join(ssmsDir, versionDir.name, 'SSMSGitHubCopilot
  * Returns an array of decoded objects; Object[0] is the session header,
  * odd-indexed objects are user requests, even-indexed are AI responses.
  */
-decodeSessionFile(filePath: string): any[] {
+async decodeSessionFile(filePath: string): Promise<any[]> {
 try {
-const buf = fs.readFileSync(filePath);
+const buf = await fs.promises.readFile(filePath);
 if (buf.length < 2) { return []; }
 return Array.from(decodeMulti(buf.slice(1)) as Iterable<any>);
 } catch {
@@ -380,11 +379,11 @@ return null;
  * Estimate total tokens for a session using a caller-supplied estimator.
  * Iterates all request + response content, summing estimated tokens.
  */
-getTokenEstimates(
+async getTokenEstimates(
 filePath: string,
 estimator: (text: string, model?: string) => number
-): { tokens: number; thinkingTokens: number } {
-const objects = this.decodeSessionFile(filePath);
+): Promise<{ tokens: number; thinkingTokens: number }> {
+const objects = await this.decodeSessionFile(filePath);
 let total = 0;
 for (let i = 1; i < objects.length; i++) {
 const objData = objects[i]?.[1];
@@ -404,12 +403,12 @@ return { tokens: total, thinkingTokens: 0 };
  * Build per-model token usage for a VS Copilot session.
  * Groups input/output text by model and estimates tokens per group.
  */
-getModelUsage(
+async getModelUsage(
 filePath: string,
 estimator: (text: string, model?: string) => number
-): ModelUsage {
+): Promise<ModelUsage> {
 const modelUsage: ModelUsage = {};
-const objects = this.decodeSessionFile(filePath);
+const objects = await this.decodeSessionFile(filePath);
 
 const modelTexts: { [model: string]: { input: string; output: string } } = {};
 
