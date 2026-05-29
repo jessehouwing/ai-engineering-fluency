@@ -4784,7 +4784,7 @@ Return ONLY the JSON object, no markdown formatting, no explanations.`;
 	}
 
 	private async invokeCopilotModel(prompt: string): Promise<string> {
-		let models = await vscode.lm.selectChatModels({ vendor: 'copilot', family: 'gpt-4o' });
+		let models = await vscode.lm.selectChatModels({ vendor: 'copilot', family: 'auto' });
 		if (models.length === 0) {
 			models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
 		}
