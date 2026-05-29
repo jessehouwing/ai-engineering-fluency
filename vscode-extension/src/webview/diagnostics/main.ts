@@ -37,6 +37,9 @@ type SessionFileDetails = {
   editorName?: string;
   title?: string;
   repository?: string;
+  parentInfo?: { uuid: string; name: string; sessionFile?: string } | null;
+  childInfo?: Array<{ uuid: string; name: string; sessionFile?: string }>;
+  totalChildCount?: number;
 };
 
 type CacheInfo = {
@@ -469,14 +472,32 @@ function buildSessionSummaryCardsHtml(filteredFiles: SessionFileDetails[], total
   <div class="filter-options"><label class="empty-sessions-toggle"><input type="checkbox" id="hide-empty-sessions" ${hideEmptySessions ? 'checked' : ''}>Hide sessions with 0 interactions${zeroInteractionCount > 0 ? `<span class="hidden-count">(${zeroInteractionCount} hidden)</span>` : ''}</label></div>`;
 }
 
+function buildHierarchyBadgesHtml(sf: SessionFileDetails): string {
+  let html = '';
+  if (sf.parentInfo) {
+    const parentTitle = escapeHtml(sf.parentInfo.name.length > 30 ? sf.parentInfo.name.substring(0, 30) + '…' : sf.parentInfo.name);
+    const linkAttr = sf.parentInfo.sessionFile
+      ? ` href="#" class="session-hierarchy-badge hierarchy-parent session-file-link" data-file="${encodeURIComponent(sf.parentInfo.sessionFile)}"`
+      : ` class="session-hierarchy-badge hierarchy-parent"`;
+    html += `<a${linkAttr} title="Parent session: ${escapeHtml(sf.parentInfo.name)}">↑ ${parentTitle}</a>`;
+  }
+  if (sf.totalChildCount && sf.totalChildCount > 0) {
+    const count = sf.totalChildCount;
+    const label = count === 1 ? '1 child' : `${count} children`;
+    html += `<span class="session-hierarchy-badge hierarchy-children" title="${label}">↓ ${count}</span>`;
+  }
+  return html ? `<div class="session-hierarchy-badges">${html}</div>` : '';
+}
+
 function buildSessionTableHtml(sortedFiles: SessionFileDetails[]): string {
   const rows = sortedFiles.map((sf, idx) => {
     const editorLabel = sf.editorName || sf.editorSource;
     const titleHtml = sf.title ? `<a href="#" class="session-file-link" data-file="${encodeURIComponent(sf.file)}" title="${escapeHtml(sf.title)}">${escapeHtml(sf.title.length > 40 ? sf.title.substring(0, 40) + "..." : sf.title)}</a>` : `<a href="#" class="session-file-link empty-session-link" data-file="${encodeURIComponent(sf.file)}" title="Empty session">(Empty session)</a>`;
+    const hierarchyBadges = buildHierarchyBadgesHtml(sf);
     const repoLabel = sf.repository ? escapeHtml(getRepoDisplayName(sf.repository)) : (sf.file.includes('session-store.db') ? '<span style="color: #888; font-style: italic;">No workspace</span>' : '<span style="color: #666;">—</span>');
     const repoTitle = sf.repository ? escapeHtml(sf.repository) : (sf.file.includes('session-store.db') ? 'Chat session — no workspace connected' : 'No repository detected');
     const isUnknownEditor = (sf.editorName || sf.editorSource || "Unknown") === "Unknown";
-    return `<tr><td>${idx + 1}</td><td><span class="${getEditorBadgeClass(editorLabel)}" title="${escapeHtml(sf.editorSource)}">${getEditorIcon(editorLabel)} ${escapeHtml(editorLabel)}</span></td><td class="session-title" title="${sf.title ? escapeHtml(sf.title) : "Empty session"}">${titleHtml}</td><td class="repository-cell" title="${repoTitle}">${repoLabel}</td><td>${formatFileSize(sf.size)}</td><td title="${Number(sf.tokens || 0).toLocaleString()} tokens">${formatTokenCount(sf.tokens)}</td><td>${sanitizeNumber(sf.interactions)}</td><td title="${escapeHtml(getContextRefsSummary(sf.contextReferences))}">${sanitizeNumber(getTotalContextRefs(sf.contextReferences))}</td><td>${formatDate(sf.lastInteraction)}</td><td><a href="#" class="view-formatted-link" data-file="${encodeURIComponent(sf.file)}" title="View formatted JSONL file">📄 View</a>${isUnknownEditor ? ` <a href="#" class="report-editor-link" data-path="${encodeURIComponent(sf.file)}" title="Report this unknown path so we can add editor support">📢 Report</a>` : ""}</td></tr>`;
+    return `<tr><td>${idx + 1}</td><td><span class="${getEditorBadgeClass(editorLabel)}" title="${escapeHtml(sf.editorSource)}">${getEditorIcon(editorLabel)} ${escapeHtml(editorLabel)}</span></td><td class="session-title" title="${sf.title ? escapeHtml(sf.title) : "Empty session"}">${hierarchyBadges}${titleHtml}</td><td class="repository-cell" title="${repoTitle}">${repoLabel}</td><td>${formatFileSize(sf.size)}</td><td title="${Number(sf.tokens || 0).toLocaleString()} tokens">${formatTokenCount(sf.tokens)}</td><td>${sanitizeNumber(sf.interactions)}</td><td title="${escapeHtml(getContextRefsSummary(sf.contextReferences))}">${sanitizeNumber(getTotalContextRefs(sf.contextReferences))}</td><td>${formatDate(sf.lastInteraction)}</td><td><a href="#" class="view-formatted-link" data-file="${encodeURIComponent(sf.file)}" title="View formatted JSONL file">📄 View</a>${isUnknownEditor ? ` <a href="#" class="report-editor-link" data-path="${encodeURIComponent(sf.file)}" title="Report this unknown path so we can add editor support">📢 Report</a>` : ""}</td></tr>`;
   }).join("");
   return `<div class="table-container"><table class="session-table"><thead><tr><th>#</th><th>Editor</th><th>Title</th><th>Repository</th><th class="sortable" data-sort="size">Size${getSortIndicator("size")}</th><th class="sortable" data-sort="tokens">Tokens${getSortIndicator("tokens")}</th><th class="sortable" data-sort="interactions">Interactions${getSortIndicator("interactions")}</th><th class="sortable" data-sort="contextRefs">Context Refs${getSortIndicator("contextRefs")}</th><th class="sortable" data-sort="lastInteraction">Last Interaction${getSortIndicator("lastInteraction")}</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }

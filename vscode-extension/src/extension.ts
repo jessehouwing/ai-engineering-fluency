@@ -53,6 +53,7 @@ import type {
   WorkspaceCustomizationSummary,
   AgentSessionsResult,
   TokenEstimator,
+  SessionRelationRef,
 } from './types';
 
 // --- Ecosystem adapter types & helpers ---
@@ -67,6 +68,7 @@ import type { GeminiCliDataAccess } from './geminicli';
 import type { IEcosystemAdapter } from './ecosystemAdapter';
 import { getEcosystemDisplayName } from './ecosystemAdapter';
 import { buildAdapterRegistry, createDataAccessInstances } from './adapters';
+import { CopilotAppDataAccess } from './copilotAppData';
 import { getVSCodeUserPaths } from './adapters/copilotChatAdapter';
 import { isJetBrainsSessionPath } from './adapters/adapterPredicates';
 import { detectJetBrainsModelHintFromContent } from './jetbrains';
@@ -288,6 +290,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 	private geminiCli!: GeminiCliDataAccess;
 	private ecosystems!: IEcosystemAdapter[];
 	private cacheManager!: CacheManager;
+	private readonly copilotAppData = new CopilotAppDataAccess();
 
 	private get usageAnalysisDeps(): UsageAnalysisDeps {
 		return { warn: (m: string) => this.warn(m), tokenEstimators: this.tokenEstimators, modelPricing: this.modelPricing, toolNameMap: this.toolNameMap, ecosystems: this.ecosystems };
@@ -3811,6 +3814,8 @@ class CopilotTokenTracker implements vscode.Disposable {
 			editorName, size: details.size, modified: details.modified, interactions: details.interactions,
 			contextReferences: details.contextReferences, firstInteraction: details.firstInteraction,
 			lastInteraction: details.lastInteraction, turns, usageAnalysis, actualTokens,
+			...(details.parentInfo ? { parentInfo: details.parentInfo } : {}),
+			...(details.childInfo ? { childInfo: details.childInfo, totalChildCount: details.totalChildCount } : {}),
 			...this.buildLogDataCacheFields(sessionCache, subAgentsStarted),
 		};
 	}
@@ -6900,7 +6905,69 @@ ${this.getLoadingHtmlScript()}
         if (lastActivity >= fourteenDaysAgo) { detailedSessionFiles.push(details); }
       } catch { /* Skip inaccessible files */ }
     }
+    await this.enrichSessionHierarchy(detailedSessionFiles);
     await this.sendBgLoadResults(panel, detailedSessionFiles, initialCacheHits, initialCacheMisses);
+  }
+
+  /**
+   * Extract the Copilot CLI events.jsonl UUID from a session file path.
+   * Handles both:
+   *   - ~/.copilot/session-state/{uuid}/events.jsonl  → returns the uuid directory name
+   *   - ~/.copilot/session-store.db#{uuid}           → returns the uuid after '#'
+   * Returns null for all other session types.
+   */
+  private extractCopilotCliUuid(sessionFile: string): string | null {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    // Virtual DB path: .../session-store.db#uuid
+    if (sessionFile.includes('session-store.db#')) {
+      const uuid = sessionFile.split('session-store.db#')[1] ?? '';
+      return UUID_RE.test(uuid) ? uuid : null;
+    }
+    // events.jsonl path: .../session-state/{uuid}/events.jsonl
+    if (sessionFile.includes('session-state')) {
+      const uuid = path.basename(path.dirname(sessionFile));
+      return UUID_RE.test(uuid) ? uuid : null;
+    }
+    return null;
+  }
+
+  /**
+   * Enrich Copilot CLI sessions in `files` with parent/child hierarchy data
+   * read from ~/.copilot/data.db.  All other session types are left untouched.
+   * Errors are suppressed — hierarchy is an optional enrichment.
+   */
+  private async enrichSessionHierarchy(files: SessionFileDetails[]): Promise<void> {
+    // Build uuid → SessionFileDetails map for Copilot CLI sessions only.
+    const uuidToDetails = new Map<string, SessionFileDetails>();
+    for (const details of files) {
+      const uuid = this.extractCopilotCliUuid(details.file);
+      if (uuid) { uuidToDetails.set(uuid, details); }
+    }
+    if (uuidToDetails.size === 0) { return; }
+
+    try {
+      const hierarchy = await this.copilotAppData.getSessionHierarchy([...uuidToDetails.keys()]);
+      for (const [uuid, node] of hierarchy) {
+        const details = uuidToDetails.get(uuid);
+        if (!details) { continue; }
+        if (node.parentUuid) {
+          const ref: SessionRelationRef = {
+            uuid: node.parentUuid,
+            name: node.parentName ?? node.parentUuid,
+            sessionFile: uuidToDetails.get(node.parentUuid)?.file,
+          };
+          details.parentInfo = ref;
+        }
+        if (node.childUuids.length > 0) {
+          details.childInfo = node.childUuids.map(cUuid => ({
+            uuid: cUuid,
+            name: node.childNames.get(cUuid) ?? cUuid,
+            sessionFile: uuidToDetails.get(cUuid)?.file,
+          } satisfies SessionRelationRef));
+          details.totalChildCount = node.totalChildCount;
+        }
+      }
+    } catch { /* hierarchy is optional — never surface errors */ }
   }
 
   private async sortSessionFilesByMtime(sessionFiles: string[]): Promise<string[]> {

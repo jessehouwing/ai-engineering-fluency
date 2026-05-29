@@ -461,6 +461,41 @@ background-position: center;
 	color: var(--text-muted);
 }
 
+/* Session hierarchy badges (parent ↑ / children ↓) */
+.session-hierarchy-badges {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 3px;
+	margin-bottom: 3px;
+}
+
+.session-hierarchy-badge {
+	display: inline-block;
+	font-size: 10px;
+	padding: 1px 5px;
+	border-radius: 3px;
+	white-space: nowrap;
+	text-decoration: none;
+}
+
+.hierarchy-parent {
+	background: rgba(100, 60, 180, 0.2);
+	color: #b89dff;
+	border: 1px solid rgba(100, 60, 180, 0.4);
+	cursor: pointer;
+}
+
+.hierarchy-parent:hover {
+	background: rgba(100, 60, 180, 0.35);
+	color: #d0b8ff;
+}
+
+.hierarchy-children {
+	background: rgba(30, 120, 80, 0.2);
+	color: #7adbb0;
+	border: 1px solid rgba(30, 120, 80, 0.4);
+}
+
 .empty-session-link:hover {
 	color: var(--text-secondary);
 }
