@@ -1,0 +1,131 @@
+{
+  "_comment": "Baselines for the validate-session-schemas skill. Two independent concepts: 'contracts' = the small hand-maintained set of fields our parsers actually depend on (drift detection); never auto-updated. 'knownFields' = the last-known observed field set per platform; refreshed with --update-baseline. New observed fields = observed - knownFields, surfaced as 'NEW' (potential information we could start using). Field-path notation: a.b nested, arr[] array items, arr[].c field inside array items, kind/type are the JSONL event discriminators.",
+  "version": "1.0",
+  "lastUpdated": "2026-05-30",
+  "platforms": {
+    "copilot-chat": {
+      "displayName": "VS Code Copilot Chat",
+      "doc": "docs/logFilesSchema/session-file-schema.json",
+      "contracts": [
+        { "format": "json", "require": ["requests", "requests[].message"], "desc": "VS Code Copilot Chat .json sessions expose a requests[] array with per-turn message objects." }
+      ],
+      "knownFields": [
+        "requests",
+        "requests[].message",
+        "requests[].message.parts[].text",
+        "requests[].response[].value",
+        "requests[].result.metadata.modelId",
+        "requestCount",
+        "sessionId",
+        "creationDate",
+        "lastMessageDate"
+      ]
+    },
+    "copilot-cli": {
+      "displayName": "Copilot CLI",
+      "doc": "docs/logFilesSchema/session-file-schema.json",
+      "contracts": [
+        { "format": "jsonl", "require": ["type"], "desc": "Copilot CLI events are JSONL records discriminated by a string 'type'." }
+      ],
+      "knownFields": [
+        "type",
+        "timestamp",
+        "sessionId"
+      ]
+    },
+    "jetbrains": {
+      "displayName": "JetBrains Copilot",
+      "doc": "docs/logFilesSchema/jetbrains-session-schema.json",
+      "contracts": [
+        { "format": "jsonl", "require": ["type"], "desc": "JetBrains partition events are JSONL records discriminated by a string 'type'." },
+        { "format": "jsonl", "discriminator": { "field": "type", "value": "assistant.message" }, "require": ["data"], "desc": "assistant.message events carry a 'data' payload (text/thinking)." }
+      ],
+      "knownFields": [
+        "type",
+        "data",
+        "data.conversationId",
+        "data.renderedMessage",
+        "data.thinking.text",
+        "data.toolCallId"
+      ]
+    },
+    "claude-code": {
+      "displayName": "Claude Code",
+      "doc": "docs/logFilesSchema/claude-code-session-schema.json",
+      "contracts": [
+        { "format": "jsonl", "require": ["type"], "desc": "Claude Code events are JSONL records discriminated by a string 'type'." },
+        { "format": "jsonl", "discriminator": { "field": "type", "value": "assistant" }, "require": ["message.usage.input_tokens", "message.usage.output_tokens"], "desc": "assistant events carry real Anthropic API token counts in message.usage." }
+      ],
+      "knownFields": [
+        "type",
+        "uuid",
+        "timestamp",
+        "message.usage.input_tokens",
+        "message.usage.output_tokens",
+        "message.usage.cache_creation_input_tokens",
+        "message.usage.cache_read_input_tokens",
+        "message.model"
+      ]
+    },
+    "gemini-cli": {
+      "displayName": "Gemini CLI",
+      "doc": "docs/logFilesSchema/gemini-cli-session-format.md",
+      "contracts": [
+        { "format": "jsonl", "discriminator": { "field": "type", "value": "gemini" }, "require": ["tokens.input", "tokens.output", "tokens.total"], "desc": "gemini turns carry real token counts in a tokens{} object." },
+        { "format": "jsonl", "discriminator": { "field": "type", "value": "user" }, "require": ["content"], "desc": "user turns carry a content array." }
+      ],
+      "knownFields": [
+        "sessionId",
+        "projectHash",
+        "startTime",
+        "lastUpdated",
+        "kind",
+        "id",
+        "timestamp",
+        "type",
+        "content",
+        "content[].text",
+        "thoughts[]",
+        "tokens.input",
+        "tokens.output",
+        "tokens.cached",
+        "tokens.thoughts",
+        "tokens.tool",
+        "tokens.total",
+        "model",
+        "toolCalls[]"
+      ]
+    },
+    "antigravity": {
+      "displayName": "Antigravity",
+      "doc": "docs/logFilesSchema/antigravity-session-format.md",
+      "contracts": [
+        { "format": "jsonl", "require": ["type", "source", "created_at"], "desc": "Every Antigravity transcript entry carries common type/source/created_at fields." }
+      ],
+      "knownFields": [
+        "step_index",
+        "source",
+        "type",
+        "status",
+        "created_at",
+        "content",
+        "thinking",
+        "tool_calls[]"
+      ]
+    },
+    "opencode": {
+      "displayName": "OpenCode",
+      "doc": null,
+      "contracts": [
+        { "format": "json", "require": ["id"], "desc": "OpenCode ses_*.json metadata files carry an id." }
+      ],
+      "knownFields": [
+        "id",
+        "title",
+        "version",
+        "time.created",
+        "time.updated"
+      ]
+    }
+  }
+}
