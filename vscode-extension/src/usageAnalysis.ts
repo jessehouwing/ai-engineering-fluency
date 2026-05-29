@@ -1352,6 +1352,61 @@ function _temStoreResults(analysis: SessionUsageAnalysis, state: TemState): void
 	analysis.agentTypes = state.agentCounts;
 }
 
+function _temCountLines(text: string): number {
+	return text.length > 0 ? (text.match(/\n/g) ?? []).length + (text.endsWith('\n') ? 0 : 1) : 0;
+}
+
+function _temHandleExecutionStart(
+	event: any,
+	pendingEdits: Map<string, { filePath: string; added: number; removed: number }>
+): void {
+	const toolName: unknown = event.data?.toolName;
+	const args: Record<string, unknown> = event.data?.arguments ?? {};
+	const toolCallId: unknown = event.data?.toolCallId;
+	const filePath: unknown = args.path;
+	if (typeof filePath !== 'string' || !filePath || typeof toolCallId !== 'string') { return; }
+	if (toolName !== 'edit' && toolName !== 'create') { return; }
+	const rawNew = toolName === 'edit' ? args.new_str : args.file_text;
+	const rawOld = toolName === 'edit' ? args.old_str : undefined;
+	const newText = typeof rawNew === 'string' ? rawNew : '';
+	const oldText = typeof rawOld === 'string' ? rawOld : '';
+	pendingEdits.set(toolCallId, { filePath, added: _temCountLines(newText), removed: _temCountLines(oldText) });
+}
+
+function _temHandleExecutionComplete(
+	event: any,
+	pendingEdits: Map<string, { filePath: string; added: number; removed: number }>,
+	state: TemState
+): void {
+	if (event.data?.success !== true) { return; }
+	const toolCallId: unknown = event.data?.toolCallId;
+	if (typeof toolCallId !== 'string') { return; }
+	const pending = pendingEdits.get(toolCallId);
+	if (!pending) { return; }
+	pendingEdits.delete(toolCallId);
+	state.totalLinesAdded += pending.added;
+	state.totalLinesRemoved += pending.removed;
+	state.editedFiles.add(pending.filePath);
+	const ext = normalizeExtension(pending.filePath);
+	if (!state.allLanguageUsage[ext]) { state.allLanguageUsage[ext] = { linesAdded: 0, linesRemoved: 0 }; }
+	state.allLanguageUsage[ext].linesAdded += pending.added;
+	state.allLanguageUsage[ext].linesRemoved += pending.removed;
+}
+
+function _temProcessNonDeltaJsonlEdits(lines: string[], state: TemState): void {
+	const pendingEdits = new Map<string, { filePath: string; added: number; removed: number }>();
+	for (const line of lines) {
+		try {
+			const event = JSON.parse(line);
+			if (event.type === 'tool.execution_start') {
+				_temHandleExecutionStart(event, pendingEdits);
+			} else if (event.type === 'tool.execution_complete') {
+				_temHandleExecutionComplete(event, pendingEdits, state);
+			}
+		} catch { /* skip malformed lines */ }
+	}
+}
+
 /**
  * Track enhanced metrics from session files:
  * - Edit scope (single vs multi-file edits)
@@ -1376,42 +1431,7 @@ export async function trackEnhancedMetrics(deps: Pick<UsageAnalysisDeps, 'warn'>
 			if (!_asuIsDeltaBased(lines)) {
 				// Non-delta JSONL (Copilot CLI format): extract LOC from edit/create tool calls.
 				// Match execution_start to execution_complete by toolCallId so only successful edits count.
-				const pendingEdits = new Map<string, { filePath: string; added: number; removed: number }>();
-				for (const line of lines) {
-					try {
-						const event = JSON.parse(line);
-						if (event.type === 'tool.execution_start') {
-							const toolName: unknown = event.data?.toolName;
-							const args: Record<string, unknown> = event.data?.arguments ?? {};
-							const toolCallId: unknown = event.data?.toolCallId;
-							const filePath: unknown = args.path;
-							if (typeof filePath !== 'string' || !filePath || typeof toolCallId !== 'string') { continue; }
-							if (toolName === 'edit' || toolName === 'create') {
-								const rawNew = toolName === 'edit' ? args.new_str : args.file_text;
-								const rawOld = toolName === 'edit' ? args.old_str : undefined;
-								const newText = typeof rawNew === 'string' ? rawNew : '';
-								const oldText = typeof rawOld === 'string' ? rawOld : '';
-								const added = newText.length > 0 ? (newText.match(/\n/g) ?? []).length + (newText.endsWith('\n') ? 0 : 1) : 0;
-								const removed = oldText.length > 0 ? (oldText.match(/\n/g) ?? []).length + (oldText.endsWith('\n') ? 0 : 1) : 0;
-								pendingEdits.set(toolCallId, { filePath, added, removed });
-							}
-						} else if (event.type === 'tool.execution_complete' && event.data?.success === true) {
-							const toolCallId: unknown = event.data?.toolCallId;
-							if (typeof toolCallId !== 'string') { continue; }
-							const pending = pendingEdits.get(toolCallId);
-							if (pending) {
-								pendingEdits.delete(toolCallId);
-								state.totalLinesAdded += pending.added;
-								state.totalLinesRemoved += pending.removed;
-								state.editedFiles.add(pending.filePath);
-								const ext = normalizeExtension(pending.filePath);
-								if (!state.allLanguageUsage[ext]) { state.allLanguageUsage[ext] = { linesAdded: 0, linesRemoved: 0 }; }
-								state.allLanguageUsage[ext].linesAdded += pending.added;
-								state.allLanguageUsage[ext].linesRemoved += pending.removed;
-							}
-						}
-					} catch { /* skip malformed lines */ }
-				}
+				_temProcessNonDeltaJsonlEdits(lines, state);
 			}
 		} else {
 			const parsed = preloadedParsedJson !== undefined ? preloadedParsedJson : JSON.parse(fileContent);
