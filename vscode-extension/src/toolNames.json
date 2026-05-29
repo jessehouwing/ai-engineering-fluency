@@ -638,6 +638,10 @@
   ,"mcp__linear__save_issue": "Linear MCP: Save Issue"
   ,"mcp_workiq_accept_eula": "WorkIQ Accept EULA"
   ,"mcp_workiq_ask_work_iq": "WorkIQ Ask Work IQ"
+  ,"mcp_microsoft-lea_microsoft_code_sample_search": "Microsoft Docs MCP (Local): Search Code Sample"
+  ,"mcp_microsoft-lea_microsoft_docs_search": "Microsoft Docs MCP (Remote): Search Docs"
+  ,"mcp_upstash_conte_query-docs": "MCP Upstash: Query Docs"
+  ,"mcp_upstash_conte_resolve-library-id": "MCP Upstash: Resolve Library ID"
   ,"mcp__Bicep__list_avm_metadata": "MCP  Bicep: List Azure Verified Module Metadata"
   ,"google_research": "Google Research"
   ,"task_execution": "Task Execution"
@@ -666,4 +670,7 @@
   ,"get_symbols": "Get Symbols"
   ,"lookup_vs": "Lookup VS"
   ,"search_web": "Search Web"
+  ,"aspire-get_doc": "Get Doc"
+  ,"aspire-search_docs": "Search Docs"
+  ,"vote_memory": "Vote Memory"
 }
