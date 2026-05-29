@@ -440,6 +440,20 @@ export interface UsageAnalysisPeriod {
     sessionCount: number; // sessions with effort data
     switchCount: number;  // total effort switches across all sessions
   };
+  /**
+   * Number of sessions in this period that are parents of 2+ child workspaces,
+   * indicating multi-agent orchestration. Populated from ~/.copilot/data.db;
+   * absent (undefined) when data.db is not available.
+   */
+  multiAgentParentSessions?: number;
+}
+
+/** Parent/child session reference used in hierarchy info (Copilot CLI sessions). */
+export interface SessionRelationRef {
+  uuid: string;
+  name: string;
+  /** Resolved path to the related session file (undefined when outside the loaded set). */
+  sessionFile?: string;
 }
 
 // Detailed session file information for diagnostics view
@@ -457,6 +471,15 @@ export interface SessionFileDetails {
   editorName?: string; // friendly editor name (e.g., 'VS Code')
   title?: string; // session title (customTitle from session file)
   repository?: string; // Git remote origin URL for the session's workspace
+  /** Parent session info (Copilot CLI sessions only, populated from ~/.copilot/data.db). */
+  parentInfo?: SessionRelationRef | null;
+  /** Direct child sessions (Copilot CLI sessions only, populated from ~/.copilot/data.db). */
+  childInfo?: SessionRelationRef[];
+  /**
+   * Total child count from data.db — may exceed childInfo.length when some
+   * children fall outside the loaded 14-day diagnostic window.
+   */
+  totalChildCount?: number;
 }
 
 // Prompt token detail from actual LLM usage data
@@ -513,6 +536,12 @@ export interface SessionLogData {
   cachedTokens?: number;
   /** Number of distinct subagent sessions started (CLI format only, from subagent.started events). */
   subAgentsStarted?: number;
+  /** Parent session info (Copilot CLI sessions only, from data.db hierarchy). */
+  parentInfo?: SessionRelationRef | null;
+  /** Direct child sessions (Copilot CLI sessions only, from data.db hierarchy). */
+  childInfo?: SessionRelationRef[];
+  /** Total child count from data.db (may exceed childInfo.length). */
+  totalChildCount?: number;
   /** Input token total from debug log (sum of all llm_request events). Present for VS Code Copilot Chat agent-mode sessions. */
   debugLogInputTokens?: number;
   /** Output token total from debug log (sum of all llm_request events). Present for VS Code Copilot Chat agent-mode sessions. */

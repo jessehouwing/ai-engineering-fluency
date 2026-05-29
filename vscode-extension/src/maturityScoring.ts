@@ -85,6 +85,12 @@ export const STAGE_THRESHOLDS = {
 		stage4MinNonAutoTools: 5,
 		/** Minimum multi-file edit sessions (alongside avgFilesPerSession) to promote to Stage 4. */
 		stage4MinMultiFileEdits: 20,
+		/** Minimum sessions with 2+ child workspaces (multi-agent orchestration) to reach at least Stage 3. */
+		stage3MinMultiAgentParents: 1,
+		/** Minimum sessions with 2+ child workspaces (multi-agent orchestration) to reach at least Stage 4. */
+		stage4MinMultiAgentParents: 3,
+		/** Minimum number of child workspaces per session to count as multi-agent orchestration. */
+		multiAgentMinChildren: 2,
 	},
 	toolUsage: {
 		/** Minimum number of distinct advanced built-in tools used to promote to Stage 3. */
@@ -552,11 +558,25 @@ function _agQualifiesMultiFileStage4(editScope: UsageAnalysisPeriod['editScope']
 	return !!editScope && editScope.multiFileEdits >= T.stage4MinMultiFileEdits && editScope.avgFilesPerSession >= T.stage3MinAvgFilesPerSession;
 }
 
+function _agApplyMultiAgentBooster(
+	multiAgentParents: number,
+	T: typeof STAGE_THRESHOLDS.agentic,
+	stage: Stage,
+	evidence: string[],
+): Stage {
+	if (multiAgentParents < T.stage3MinMultiAgentParents) { return stage; }
+	const label = multiAgentParents === 1 ? '1 session' : `${fmt(multiAgentParents)} sessions`;
+	evidence.push(`${label} with child workspaces (multi-agent orchestration)`);
+	stage = promoteStage(stage, 3);
+	if (multiAgentParents >= T.stage4MinMultiAgentParents) { stage = promoteStage(stage, 4); }
+	return stage;
+}
+
 function _agBuildTips(stage: Stage): string[] {
 	const tips: string[] = [];
 	if (stage < 2) { tips.push('Try [agent mode](https://code.visualstudio.com/docs/copilot/agents/overview) — it can run terminal commands, edit files, and explore your codebase autonomously'); }
 	if (stage < 3) { tips.push('Use [agent mode](https://code.visualstudio.com/docs/copilot/agents/overview) for multi-step tasks; let it chain tools like file search, terminal, and code edits'); }
-	if (stage < 4) { tips.push('Tackle complex refactoring or debugging tasks in [agent mode](https://code.visualstudio.com/docs/copilot/agents/overview) for deeper autonomous workflows'); }
+	if (stage < 4) { tips.push('Try [multi-agent orchestration](https://code.visualstudio.com/docs/copilot/agents/overview): start child sessions from a parent session to run multiple agents in parallel on independent sub-tasks'); }
 	return tips;
 }
 
@@ -584,6 +604,7 @@ function _scoreAgentic(p: UsageAnalysisPeriod): CategoryScore {
 	if (_agQualifiesForStage3(agentInteractions, nonAutoToolCount, T)) { stage = 3; }
 	if (_agQualifiesForStage4(agentInteractions, nonAutoToolCount, T)) { stage = 4; }
 	if (_agQualifiesMultiFileStage4(p.editScope, T)) { stage = promoteStage(stage, 4); }
+	stage = _agApplyMultiAgentBooster(p.multiAgentParentSessions ?? 0, T, stage, evidence);
 
 	return { stage, evidence, tips: _agBuildTips(stage) };
 }

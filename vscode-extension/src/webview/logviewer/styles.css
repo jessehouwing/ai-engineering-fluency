@@ -1094,3 +1094,27 @@ details[open] > summary .collapse-arrow {
 		grid-template-columns: 1fr;
 	}
 }
+
+/* Session hierarchy card */
+.hierarchy-card-content {
+text-align: left;
+padding-top: 4px;
+}
+
+.hierarchy-line {
+font-size: 12px;
+line-height: 1.6;
+padding: 2px 0;
+}
+
+.hierarchy-parent-line {
+color: #b89dff;
+}
+
+.hierarchy-children-line {
+color: #7adbb0;
+}
+
+.hierarchy-child-name {
+font-style: italic;
+}

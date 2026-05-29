@@ -78,6 +78,12 @@ actualTokens?: number;
 cachedTokens?: number;
 /** Number of subagent sessions started (CLI format only). */
 subAgentsStarted?: number;
+/** Parent session info (Copilot CLI sessions only, from data.db hierarchy). */
+parentInfo?: { uuid: string; name: string; sessionFile?: string } | null;
+/** Direct child sessions (Copilot CLI sessions only, from data.db hierarchy). */
+childInfo?: Array<{ uuid: string; name: string; sessionFile?: string }>;
+/** Total child count from data.db (may exceed childInfo.length). */
+totalChildCount?: number;
 /** Input token total from debug log (sum of all llm_request events). Present for VS Code Copilot Chat agent-mode sessions. */
 debugLogInputTokens?: number;
 /** Output token total from debug log (sum of all llm_request events). Present for VS Code Copilot Chat agent-mode sessions. */
@@ -778,6 +784,30 @@ function buildEffortCard(stats: SummaryStats): string {
 </div>`;
 }
 
+function buildHierarchyCard(data: SessionLogData): string {
+	const hasParent = !!data.parentInfo;
+	const childCount = data.totalChildCount ?? data.childInfo?.length ?? 0;
+	if (!hasParent && childCount === 0) { return ''; }
+
+	let parts: string[] = [];
+	if (hasParent) {
+		const pName = escapeHtml(data.parentInfo!.name);
+		parts.push(`<div class="hierarchy-line hierarchy-parent-line">↑ Parent: <strong>${pName}</strong></div>`);
+	}
+	if (childCount > 0) {
+		const shown = data.childInfo?.slice(0, 5) ?? [];
+		const more = childCount - shown.length;
+		const childItems = shown.map(c => `<span class="hierarchy-child-name">${escapeHtml(c.name)}</span>`).join(', ');
+		const moreHtml = more > 0 ? ` <span style="color: var(--vscode-descriptionForeground);">+${more} more</span>` : '';
+		parts.push(`<div class="hierarchy-line hierarchy-children-line">↓ Children (${childCount}): ${childItems}${moreHtml}</div>`);
+	}
+
+	return `<div class="summary-card">
+<div class="summary-label">🔗 Session Hierarchy</div>
+<div class="summary-sub hierarchy-card-content">${parts.join('')}</div>
+</div>`;
+}
+
 function buildSubAgentsCard(data: SessionLogData, stats: SummaryStats): string {
 	if (stats.totalSubAgentCalls <= 0 && (data.subAgentsStarted ?? 0) <= 0) { return ''; }
 	const count = data.subAgentsStarted ?? stats.totalSubAgentCalls;
@@ -828,6 +858,7 @@ ${buildCachedTokensCard(data)}
 ${buildThinkingTokensCard(data, stats)}
 ${buildEffortCard(stats)}
 ${buildSubAgentsCard(data, stats)}
+${buildHierarchyCard(data)}
 <div class="summary-card">
 <div class="summary-label">🔧 Tool Calls</div>
 <div class="summary-value">${usageToolTotal}</div>
