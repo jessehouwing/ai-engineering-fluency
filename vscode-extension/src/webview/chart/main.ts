@@ -535,30 +535,7 @@ async function switchMetric(metric: typeof currentMetric, data: InitialChartData
 		rollingBtnEl.classList.toggle('active', rollingApplicable && currentDisplayMode === 'rolling');
 	}
 	updateSummaryCards(data);
-	refreshHeatmapView(data);
-	if (isHeatmapView()) {
-		if (chart) { chart.destroy(); chart = undefined; }
-		return;
-	}
-	if (!chart) {
-		// May have come from heatmap view with no active chart — get canvas from DOM
-		const canvasEl = document.getElementById('token-chart') as HTMLCanvasElement | null;
-		if (!canvasEl) { return; }
-		await loadChartModule();
-		if (!Chart) { return; }
-		const ctx = canvasEl.getContext('2d');
-		if (!ctx) { return; }
-		chart = new Chart(ctx, createConfig(data));
-		return;
-	}
-	const canvas = chart.canvas as HTMLCanvasElement | null;
-	chart.destroy();
-	if (!canvas) { return; }
-	const ctx = canvas.getContext('2d');
-	if (!ctx) { return; }
-	await loadChartModule();
-	if (!Chart) { return; }
-	chart = new Chart(ctx, createConfig(data));
+	await reinitChart(data);
 }
 
 function isSplitSupported(metric: typeof currentMetric, split: typeof currentSplit): boolean {
@@ -728,15 +705,8 @@ function buildTotalViewConfig(period: ChartPeriodData, baseOptions: ReturnType<t
 	};
 }
 
-function buildCostViewConfig(period: ChartPeriodData, baseOptions: ReturnType<typeof buildBaseOptions>, c: ChartColors, monthlyBudget = 0): ChartConfig {
-	const isRolling = currentDisplayMode === 'rolling';
-	const costData = isRolling ? computeRollingAverage(period.costData, ROLLING_WINDOW[currentPeriod]) : period.costData;
-	const lastIdx = period.costData.length - 1;
-	const projExtra = !isRolling && lastIdx >= 0 ? computeProjectionExtra(period.costData[lastIdx], getCurrentPeriodFraction(currentPeriod)) : null;
-	const projDs = projExtra !== null ? [{ label: PROJECTION_LABELS[currentPeriod], data: period.costData.map((_: number, i: number) => i === lastIdx ? projExtra : 0), backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: 'rgba(34, 197, 94, 0.5)', borderWidth: 1, yAxisID: 'y' }] : [];
-	const rollingLabel = getRollingLabel();
-	const showBudgetLine = currentPeriod === 'month' && monthlyBudget > 0;
-	const budgetLinePlugin = showBudgetLine ? {
+function buildBudgetLinePlugin(monthlyBudget: number) {
+	return {
 		id: 'budgetLine',
 		afterDraw(ch: any) {
 			const { ctx, chartArea, scales: { y } } = ch;
@@ -758,13 +728,35 @@ function buildCostViewConfig(period: ChartPeriodData, baseOptions: ReturnType<ty
 			ctx.fillText(`Budget: $${monthlyBudget.toFixed(2)}`, chartArea.left + 6, yPos - 5);
 			ctx.restore();
 		},
-	} : null;
+	};
+}
+
+function buildCostDataset(isRolling: boolean, rollingLabel: string, costData: number[]) {
+	return {
+		label: isRolling ? `${rollingLabel} (UBB)` : 'Est. Cost (UBB)',
+		data: costData,
+		backgroundColor: isRolling ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.6)',
+		borderColor: 'rgba(34, 197, 94, 1)',
+		borderWidth: isRolling ? 2 : 1,
+		type: isRolling ? 'line' as const : undefined,
+		tension: isRolling ? 0.4 : undefined,
+		fill: isRolling ? false : undefined,
+		yAxisID: 'y' as const,
+	};
+}
+
+function buildCostViewConfig(period: ChartPeriodData, baseOptions: ReturnType<typeof buildBaseOptions>, c: ChartColors, monthlyBudget = 0): ChartConfig {
+	const isRolling = currentDisplayMode === 'rolling';
+	const costData = isRolling ? computeRollingAverage(period.costData, ROLLING_WINDOW[currentPeriod]) : period.costData;
+	const lastIdx = period.costData.length - 1;
+	const projExtra = !isRolling && lastIdx >= 0 ? computeProjectionExtra(period.costData[lastIdx], getCurrentPeriodFraction(currentPeriod)) : null;
+	const projDs = projExtra !== null ? [{ label: PROJECTION_LABELS[currentPeriod], data: period.costData.map((_: number, i: number) => i === lastIdx ? projExtra : 0), backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: 'rgba(34, 197, 94, 0.5)', borderWidth: 1, yAxisID: 'y' }] : [];
+	const rollingLabel = getRollingLabel();
+	const showBudgetLine = currentPeriod === 'month' && monthlyBudget > 0;
+	const budgetLinePlugin = showBudgetLine ? buildBudgetLinePlugin(monthlyBudget) : null;
 	return {
 		type: 'bar' as const,
-		data: { labels: period.labels, datasets: [
-			{ label: isRolling ? `${rollingLabel} (UBB)` : 'Est. Cost (UBB)', data: costData, backgroundColor: isRolling ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.6)', borderColor: 'rgba(34, 197, 94, 1)', borderWidth: isRolling ? 2 : 1, type: isRolling ? 'line' as const : undefined, tension: isRolling ? 0.4 : undefined, fill: isRolling ? false : undefined, yAxisID: 'y' },
-			...projDs
-		] },
+		data: { labels: period.labels, datasets: [buildCostDataset(isRolling, rollingLabel, costData), ...projDs] },
 		options: { ...baseOptions, plugins: { ...baseOptions.plugins, tooltip: { ...baseOptions.plugins.tooltip, callbacks: { label: (ctx: any) => ` $${Number(ctx.parsed.y).toFixed(4)}` } } },
 			scales: { x: { stacked: true, grid: { color: c.gridColor }, ticks: { color: c.textColor, font: { size: 11 } } }, y: { stacked: true, type: 'linear' as const, display: true, position: 'left' as const, grid: { color: c.gridColor }, ticks: { color: c.textColor, font: { size: 11 }, callback: (value: any) => `$${Number(value).toFixed(2)}` }, title: { display: true, text: 'Estimated Cost (UBB)', color: c.textColor, font: { size: 12, weight: 'bold' as const } }, ...(showBudgetLine ? { suggestedMax: monthlyBudget * 1.05 } : {}) } }
 		},
