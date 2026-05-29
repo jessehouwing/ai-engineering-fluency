@@ -153,13 +153,31 @@ const DEFAULT_TOKENS_PER_CHAR = 0.25;
  */
 const FORMAT_DETECTION_LINE_LIMIT = 10;
 
+/**
+ * Cache of pre-normalized estimator entries keyed by the estimators object reference.
+ * estimateTokensFromText is called for every message part, response item, and tool
+ * result across all sessions on the 5-minute refresh; precomputing the dash-stripped
+ * model key once per estimators object avoids allocating a temporary string on every
+ * iteration of every call.
+ */
+const _estimatorEntriesCache = new WeakMap<object, Array<[string, string, TokenEstimator]>>();
+
+function getEstimatorEntries(tokenEstimators: Record<string, TokenEstimator>): Array<[string, string, TokenEstimator]> {
+	let entries = _estimatorEntriesCache.get(tokenEstimators);
+	if (!entries) {
+		entries = Object.entries(tokenEstimators).map(([modelKey, ratio]) => [modelKey, modelKey.replace('-', ''), ratio] as [string, string, TokenEstimator]);
+		_estimatorEntriesCache.set(tokenEstimators, entries);
+	}
+	return entries;
+}
+
 export function estimateTokensFromText(text: string, model: string = 'gpt-4', tokenEstimators: Record<string, TokenEstimator> = {}): number {
 	// Token estimation based on character count and model
 	let tokensPerChar = DEFAULT_TOKENS_PER_CHAR;
 
 	// Find matching model
-	for (const [modelKey, ratio] of Object.entries(tokenEstimators)) {
-		if (model.includes(modelKey) || model.includes(modelKey.replace('-', ''))) {
+	for (const [modelKey, normalizedKey, ratio] of getEstimatorEntries(tokenEstimators)) {
+		if (model.includes(modelKey) || model.includes(normalizedKey)) {
 			tokensPerChar = ratio;
 			break;
 		}
@@ -840,53 +858,53 @@ export function extractPerRequestUsageFromRawLines(lines: string[]): Map<number,
 	return usage;
 }
 
-/** Build a reverse lookup map from display name → model ID using modelPricing entries. */
-function _gmfrBuildReverseMap(modelPricing: { [key: string]: ModelPricing }): { [displayName: string]: string } {
-	const reverseMap: { [displayName: string]: string } = {};
-	for (const [modelId, pricing] of Object.entries(modelPricing)) {
-		if (pricing.displayNames) {
-			for (const displayName of pricing.displayNames) {
-				reverseMap[displayName] = modelId;
+/**
+ * Cache of the display-name → modelId lookup (and its length-sorted key list) keyed by
+ * the modelPricing object reference. getModelFromRequest is called once per request across
+ * every session on the 5-minute refresh; without this cache the map was rebuilt and the
+ * key list re-sorted on every single call, which dominated CPU during large analysis runs.
+ */
+const _displayNameLookupCache = new WeakMap<object, { map: { [displayName: string]: string }; sortedNames: string[] }>();
+
+function getDisplayNameLookup(modelPricing: { [key: string]: ModelPricing }): { map: { [displayName: string]: string }; sortedNames: string[] } {
+	let cached = _displayNameLookupCache.get(modelPricing);
+	if (!cached) {
+		const map: { [displayName: string]: string } = {};
+		for (const [modelId, pricing] of Object.entries(modelPricing)) {
+			if (pricing.displayNames) {
+				for (const displayName of pricing.displayNames) { map[displayName] = modelId; }
 			}
 		}
+		// Sort by length descending to match longer names first (e.g., "Gemini 3 Pro (Preview)" before "Gemini 3 Pro")
+		const sortedNames = Object.keys(map).sort((a, b) => b.length - a.length);
+		cached = { map, sortedNames };
+		_displayNameLookupCache.set(modelPricing, cached);
 	}
-	return reverseMap;
+	return cached;
 }
 
 /** Find the model ID for a request by matching display names against its details string. Returns null if not found. */
 function _gmfrFindByDisplayName(details: string, modelPricing: { [key: string]: ModelPricing }): string | null {
-	const reverseMap = _gmfrBuildReverseMap(modelPricing);
-	// Sort by length descending to match longer names first (e.g., "Gemini 3 Pro (Preview)" before "Gemini 3 Pro")
-	const sortedNames = Object.keys(reverseMap).sort((a, b) => b.length - a.length);
+	const { map, sortedNames } = getDisplayNameLookup(modelPricing);
 	for (const displayName of sortedNames) {
-		if (details.includes(displayName)) { return reverseMap[displayName]; }
+		if (details.includes(displayName)) { return map[displayName]; }
 	}
 	return null;
 }
 
-function _gmrBuildDisplayNameLookup(modelPricing: { [key: string]: ModelPricing }): { [displayName: string]: string } {
-const map: { [displayName: string]: string } = {};
-for (const [modelId, pricing] of Object.entries(modelPricing)) {
-if (pricing.displayNames) {
-for (const displayName of pricing.displayNames) { map[displayName] = modelId; }
-}
-}
-return map;
-}
-
-function _gmrMatchDisplayName(details: string, displayNameMap: { [dn: string]: string }): string | null {
-const sorted = Object.keys(displayNameMap).sort((a, b) => b.length - a.length);
-for (const displayName of sorted) {
-if (details.includes(displayName)) { return displayNameMap[displayName]; }
-}
-return null;
+function _gmrMatchDisplayName(details: string, modelPricing: { [key: string]: ModelPricing }): string | null {
+	const { map, sortedNames } = getDisplayNameLookup(modelPricing);
+	for (const displayName of sortedNames) {
+		if (details.includes(displayName)) { return map[displayName]; }
+	}
+	return null;
 }
 
 export function getModelFromRequest(request: ModelRequestSource, modelPricing: { [key: string]: ModelPricing } = {}): string {
 	if (request.modelId) { return request.modelId.replace(/^copilot\//, ''); }
 	if (request.result?.metadata?.modelId) { return request.result.metadata.modelId.replace(/^copilot\//, ''); }
 	if (request.result?.details) {
-		const matched = _gmrMatchDisplayName(request.result.details, _gmrBuildDisplayNameLookup(modelPricing));
+		const matched = _gmrMatchDisplayName(request.result.details, modelPricing);
 		if (matched) { return matched; }
 	}
 

@@ -70,6 +70,7 @@ import { buildAdapterRegistry, createDataAccessInstances } from './adapters';
 import { getVSCodeUserPaths } from './adapters/copilotChatAdapter';
 import { isJetBrainsSessionPath } from './adapters/adapterPredicates';
 import { detectJetBrainsModelHintFromContent } from './jetbrains';
+import { createWakeupGate } from './utils/promises';
 
 // --- Session parsing & token estimation ---
 import {
@@ -1532,6 +1533,10 @@ class CopilotTokenTracker implements vscode.Disposable {
 		let processed = 0;
 		const CONCURRENCY = 20;
 
+		// Event-driven wakeups: workers that find the queue empty park on the gate
+		// instead of polling on a timer, avoiding pointless wake-ups while discovery runs.
+		const gate = createWakeupGate();
+
 		const analyzeStartMs = Date.now();
 
 		// Discovery fills the queue via onBatch callback
@@ -1546,9 +1551,11 @@ class CopilotTokenTracker implements vscode.Disposable {
 					}
 					queue.push(...batch);
 					totalDiscovered += batch.length;
+					gate.signal();
 				});
 			} finally {
 				discoveryDone = true;
+				gate.signal();
 			}
 		})();
 
@@ -1557,8 +1564,10 @@ class CopilotTokenTracker implements vscode.Disposable {
 			while (true) {
 				if (readIndex >= queue.length) {
 					if (discoveryDone) { break; }
-					// Briefly yield to allow discovery batches to arrive
-					await new Promise(r => setTimeout(r, 20));
+					// Park until discovery pushes more work or signals completion. The gate
+					// registers the waiter synchronously in this same tick, so no batch can
+					// slip in unobserved between the emptiness check and parking.
+					await gate.wait();
 					continue;
 				}
 				const sessionFile = queue[readIndex++];
