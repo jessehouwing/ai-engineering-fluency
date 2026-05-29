@@ -14,7 +14,14 @@ for (const [modelId, pricing] of Object.entries(modelPricingJson.pricing as Reco
 
 /**
  * Returns a human-friendly display name for a given model identifier.
+ * If the model ID is not in the pricing JSON, it falls back to URI-decoding
+ * the raw ID (e.g. unify-chat-provider names contain %20-encoded segments).
  */
 export function getModelDisplayName(model: string): string {
-    return _modelNames[model] || model;
+    if (_modelNames[model]) { return _modelNames[model]; }
+    try {
+        return decodeURIComponent(model);
+    } catch {
+        return model;
+    }
 }

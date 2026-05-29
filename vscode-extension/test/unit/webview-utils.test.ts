@@ -30,6 +30,18 @@ test('getModelDisplayName: returns raw model ID for unknown models', () => {
 	assert.equal(getModelDisplayName(''), '');
 });
 
+test('getModelDisplayName: decodes URI-encoded segments in unknown model IDs', () => {
+	assert.equal(
+		getModelDisplayName('unify-chat-provider/OpenCode%20Go%20(Anthropic%20Messages)/qwen3.7-max'),
+		'unify-chat-provider/OpenCode Go (Anthropic Messages)/qwen3.7-max'
+	);
+	assert.equal(getModelDisplayName('provider/Model%20Name'), 'provider/Model Name');
+});
+
+test('getModelDisplayName: returns raw ID when URI decoding fails (malformed percent)', () => {
+	assert.equal(getModelDisplayName('bad%2model'), 'bad%2model');
+});
+
 // ── getEditorIcon ───────────────────────────────────────────────────────
 
 test('getEditorIcon: returns correct icons for known editors', () => {
