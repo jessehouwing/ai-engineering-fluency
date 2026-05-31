@@ -2253,6 +2253,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 			last30Days: stats.last30Days,
 			missedPotential: stats.missedPotential ?? [],
 			customizationMatrix: stats.customizationMatrix,
+			todaySessions: stats.todaySessions,
 		};
 		return _evaluateInsights(ctx, this._insightStateBag, cadenceDays, this._lastInsightNudgeAt);
 	}
