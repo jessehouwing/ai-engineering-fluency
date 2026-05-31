@@ -372,6 +372,23 @@
           "default": [],
           "description": "List of tool names to suppress from the 'Unknown Tools Found' section in the Usage Analysis dashboard. Useful for tools you are testing that don't yet have friendly display names."
         },
+        "aiEngineeringFluency.insights.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable personalized AI usage insights and nudges in the Usage Analysis dashboard and status bar."
+        },
+        "aiEngineeringFluency.insights.toastsEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show occasional toast notifications for high-value insights (e.g. missing copilot-instructions.md, new fluency stage). Respects the cadenceDays limit."
+        },
+        "aiEngineeringFluency.insights.cadenceDays": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 30,
+          "description": "Minimum number of days between insight toast notifications."
+        },
         "copilotTokenTracker.windsurf.enabled": {
           "type": "boolean",
           "default": true,

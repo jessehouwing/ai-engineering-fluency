@@ -602,5 +602,33 @@ export interface WorkspaceCustomizationSummary {
   staleFiles: number;
 }
 
+// ---------------------------------------------------------------------------
+// Insights / Nudges framework
+// ---------------------------------------------------------------------------
 
+export type InsightCategory = 'context' | 'agentic' | 'customization' | 'consistency' | 'tools' | 'trend';
+export type InsightSeverity = 'tip' | 'opportunity' | 'celebration';
+export type InsightStatus = 'new' | 'seen' | 'dismissed' | 'snoozed' | 'done';
 
+export interface InsightState {
+  status: InsightStatus;
+  firstSurfacedAt: string;   // ISO timestamp
+  lastSurfacedAt: string;    // ISO timestamp
+  snoozeUntil?: string;      // ISO timestamp; present when status === 'snoozed'
+}
+
+/** Persisted bag of per-insight state keyed by insight id. */
+export type InsightStateBag = Record<string, InsightState>;
+
+/** A fully evaluated, display-ready insight card. */
+export interface EvaluatedInsight {
+  id: string;
+  category: InsightCategory;
+  severity: InsightSeverity;
+  title: string;
+  body: string;
+  actionLabel?: string;
+  actionCommand?: string;
+  status: InsightStatus;
+  allowToast?: boolean;
+}
