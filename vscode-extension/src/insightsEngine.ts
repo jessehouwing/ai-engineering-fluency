@@ -144,7 +144,62 @@ export const INSIGHT_CATALOG: InsightDefinition[] = [
 		weight: 60,
 	},
 
-	// ── Consistency ─────────────────────────────────────────────────────────
+	// ── Streaks / Consistency ───────────────────────────────────────────────
+	{
+		id: 'consistent-daily-user',
+		category: 'consistency',
+		severity: 'celebration',
+		title: '🔥 You\'re a consistent Copilot user!',
+		buildBody: (ctx) => {
+			const n = ctx.last30Days.sessions;
+			return `You've been consistently using Copilot — ${n} sessions over the last 30 days. ` +
+				`Consistent AI use builds stronger intuition over time.`;
+		},
+		appliesTo: (ctx) => ctx.last30Days.sessions >= 25,
+		weight: 45,
+		allowToast: true,
+	},
+	{
+		id: 'irregular-usage',
+		category: 'consistency',
+		severity: 'opportunity',
+		title: '📅 Build a Copilot habit with daily use',
+		buildBody: (ctx) => {
+			const n = ctx.last30Days.sessions;
+			return `You've used Copilot ${n} time${n !== 1 ? 's' : ''} in the last 30 days. ` +
+				`Regular daily use (even for small tasks) helps you build intuition and flow with AI-assisted coding.`;
+		},
+		appliesTo: (ctx) => ctx.last30Days.sessions > 0 && ctx.last30Days.sessions < 10,
+		weight: 60,
+	},
+	{
+		id: 'mode-diversity-low',
+		category: 'consistency',
+		severity: 'tip',
+		title: '🔀 Explore more Copilot modes',
+		buildBody: (ctx) => {
+			const sessions = ctx.last30Days.sessions;
+			const m = ctx.last30Days.modeUsage;
+			if ((m.ask ?? 0) > 0.85 * sessions) {
+				return 'You mostly use Ask mode. Try Edit mode for making code changes directly.';
+			}
+			if ((m.edit ?? 0) > 0.85 * sessions) {
+				return 'You mostly use Edit mode. Ask mode is great for questions and exploration.';
+			}
+			return 'You haven\'t tried Agent mode yet. It handles multi-step tasks autonomously — great for refactoring, adding tests, or implementing features.';
+		},
+		appliesTo: (ctx) => {
+			const sessions = ctx.last30Days.sessions;
+			if (sessions < 10) { return false; }
+			const m = ctx.last30Days.modeUsage;
+			return (m.ask ?? 0) > 0.85 * sessions
+				|| (m.edit ?? 0) > 0.85 * sessions
+				|| ((m.agent ?? 0) === 0 && sessions >= 15);
+		},
+		weight: 50,
+	},
+
+	// ── Conversation patterns ────────────────────────────────────────────────
 	{
 		id: 'mostly-single-turn',
 		category: 'consistency',
