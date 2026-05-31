@@ -1506,67 +1506,77 @@ function buildReposAndAgentTabPanelsHtml(): string {
 
 function buildInsightCardHtml(insight: EvaluatedInsight): string {
 	const severityColors: Record<InsightSeverity, string> = {
-		tip: 'rgba(96,165,250,0.15)',
-		opportunity: 'rgba(251,191,36,0.15)',
-		celebration: 'rgba(74,222,128,0.15)',
+		tip: 'rgba(96,165,250,0.12)',
+		opportunity: 'rgba(251,191,36,0.12)',
+		celebration: 'rgba(74,222,128,0.12)',
 	};
 	const severityBorder: Record<InsightSeverity, string> = {
-		tip: 'rgba(96,165,250,0.4)',
-		opportunity: 'rgba(251,191,36,0.4)',
-		celebration: 'rgba(74,222,128,0.4)',
+		tip: 'rgba(96,165,250,0.5)',
+		opportunity: 'rgba(251,191,36,0.5)',
+		celebration: 'rgba(74,222,128,0.5)',
+	};
+	// Accent colour used for the primary action button per severity
+	const severityAccent: Record<InsightSeverity, string> = {
+		tip: 'rgba(96,165,250,0.85)',
+		opportunity: 'rgba(251,191,36,0.85)',
+		celebration: 'rgba(74,222,128,0.85)',
 	};
 	const bg = severityColors[insight.severity] ?? severityColors.tip;
 	const border = severityBorder[insight.severity] ?? severityBorder.tip;
+	const accent = severityAccent[insight.severity] ?? severityAccent.tip;
 	const isNew = insight.status === 'new';
 	const isDone = insight.status === 'done';
 
 	const actionBtn = insight.actionLabel
 		? `<button class="insight-action-btn" data-insight-id="${escapeHtml(insight.id)}" data-action="execute" data-command="${escapeHtml(insight.actionCommand ?? '')}"
-				style="padding:4px 12px; font-size:12px; cursor:pointer; border:1px solid var(--border-color); border-radius:4px;
-				background:var(--bg-tertiary); color:var(--text-primary);">${escapeHtml(insight.actionLabel)}</button>`
+				style="padding:5px 14px; font-size:12px; font-weight:600; cursor:pointer;
+				border:1px solid ${border}; border-radius:5px;
+				background:${bg}; color:var(--text-primary);">${escapeHtml(insight.actionLabel)}</button>`
 		: '';
 
 	const doneBtn = !isDone
 		? `<button class="insight-action-btn" data-insight-id="${escapeHtml(insight.id)}" data-action="done"
 				title="Mark as done"
-				style="padding:4px 10px; font-size:11px; cursor:pointer; border:1px solid var(--border-color); border-radius:4px;
-				background:transparent; color:var(--text-secondary);">✓ Done</button>`
-		: `<span style="font-size:11px; color:var(--text-secondary); opacity:0.6;">✓ Done</span>`;
+				style="padding:5px 14px; font-size:12px; font-weight:600; cursor:pointer;
+				border:1px solid ${border}; border-radius:5px;
+				background:${accent}; color:#0d1117;">✓ Done</button>`
+		: `<span style="font-size:12px; color:var(--text-secondary); opacity:0.5; padding:5px 6px;">✓ Done</span>`;
 
 	const snoozeBtn = !isDone
 		? `<button class="insight-action-btn" data-insight-id="${escapeHtml(insight.id)}" data-action="snooze"
 				title="Snooze for 7 days"
-				style="padding:4px 10px; font-size:11px; cursor:pointer; border:1px solid var(--border-color); border-radius:4px;
-				background:transparent; color:var(--text-secondary);">⏸ Snooze</button>`
+				style="padding:5px 14px; font-size:12px; font-weight:500; cursor:pointer;
+				border:1px solid ${border}; border-radius:5px;
+				background:transparent; color:var(--text-primary);">⏸ Snooze</button>`
 		: '';
 
 	const dismissBtn = !isDone
 		? `<button class="insight-action-btn" data-insight-id="${escapeHtml(insight.id)}" data-action="dismiss"
 				title="Dismiss permanently"
-				style="padding:4px 10px; font-size:11px; cursor:pointer; border:none; border-radius:4px;
-				background:transparent; color:var(--text-secondary); opacity:0.6;">✕</button>`
+				style="padding:4px 8px; font-size:14px; line-height:1; cursor:pointer; border:none; border-radius:4px;
+				background:transparent; color:var(--text-primary); opacity:0.5;">✕</button>`
 		: '';
 
 	return `
 		<div class="insight-card" data-insight-id="${escapeHtml(insight.id)}"
-			style="margin-bottom:12px; padding:14px 16px; border-radius:8px;
+			style="margin-bottom:12px; padding:16px 18px; border-radius:8px;
 			background:${bg}; border:1px solid ${border};
-			${isNew ? 'box-shadow:0 0 0 1px ' + border + ';' : ''}
-			${isDone ? 'opacity:0.55;' : ''}">
+			${isNew ? 'box-shadow:0 2px 8px ' + bg + ';' : ''}
+			${isDone ? 'opacity:0.45;' : ''}">
 			<div style="display:flex; align-items:flex-start; gap:10px;">
 				<div style="flex:1;">
-					<div style="font-size:13px; font-weight:600; color:var(--text-primary); margin-bottom:6px;">
-						${isNew ? '<span style="font-size:10px; padding:2px 6px; border-radius:10px; background:rgba(96,165,250,0.3); color:#60a5fa; vertical-align:middle; margin-right:6px;">NEW</span>' : ''}
+					<div style="font-size:13px; font-weight:700; color:var(--text-primary); margin-bottom:8px; display:flex; align-items:center; gap:8px;">
+						${isNew ? `<span style="font-size:10px; padding:2px 7px; border-radius:10px; background:${accent}; color:#0d1117; font-weight:700; letter-spacing:0.04em;">NEW</span>` : ''}
 						${escapeHtml(insight.title)}
 					</div>
-					<div style="font-size:12px; color:var(--text-secondary); line-height:1.5; white-space:pre-wrap;">${escapeHtml(insight.body)}</div>
-					${actionBtn ? `<div style="margin-top:10px;">${actionBtn}</div>` : ''}
+					<div style="font-size:13px; color:var(--text-primary); line-height:1.6; opacity:0.85; white-space:pre-wrap;">${escapeHtml(insight.body)}</div>
+					${actionBtn ? `<div style="margin-top:12px;">${actionBtn}</div>` : ''}
 				</div>
-				<div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px; flex-shrink:0;">
+				<div style="flex-shrink:0; margin-top:-4px;">
 					${dismissBtn}
 				</div>
 			</div>
-			<div style="display:flex; gap:6px; margin-top:10px; justify-content:flex-end;">
+			<div style="display:flex; gap:8px; margin-top:14px; justify-content:flex-end; border-top:1px solid ${border}; padding-top:10px;">
 				${doneBtn}
 				${snoozeBtn}
 			</div>
