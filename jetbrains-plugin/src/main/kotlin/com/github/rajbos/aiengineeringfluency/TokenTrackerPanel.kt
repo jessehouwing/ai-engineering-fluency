@@ -97,7 +97,7 @@ class TokenTrackerPanel(
                     initialJson = trimmed.dropLast(1) + ",\"initialPeriod\":\"${currentChartPeriod}\"}"
                 }
             }
-            initialJson
+            injectSettings(initialJson)
         }
         result.fold(
             onSuccess = { initialJson ->
@@ -155,12 +155,13 @@ class TokenTrackerPanel(
         val view = currentView
         log.info("Pushing stats to webview: ${statsJson.length} chars, globalKey=${WebviewResources.viewToGlobalKey(view)}")
         val globalKey = WebviewResources.viewToGlobalKey(view)
-        val escapedJson = statsJson
+        // statsJson is already the extracted view sub-object (done by refreshStatsAsync before calling here)
+        val statsJsonWithSettings = injectSettings(statsJson)
+        val escapedJson = statsJsonWithSettings
             .replace("\\", "\\\\")
             .replace("'", "\\'")
             .replace("\n", "\\n")
             .replace("\r", "\\r")
-        // statsJson is already the extracted view sub-object (done by refreshStatsAsync before calling here)
         val js = """
             (function() {
                 try {
@@ -303,6 +304,20 @@ class TokenTrackerPanel(
             browser.loadHTML(WebviewResources.buildHtml(view, hostBridgeInjectFunction = hostBridge.inject("payload")))
             prefetchAndLoadView(view)
         }
+    }
+
+    /**
+     * Appends the current plugin display settings (compactNumbers, use24HourTime)
+     * to the JSON object that is sent to the webview, so the bundle can apply
+     * the same formatting rules as the VS Code extension.
+     */
+    private fun injectSettings(json: String): String {
+        val trimmed = json.trimEnd()
+        if (!trimmed.endsWith("}")) return json
+        val settings = PluginSettings.instance.state
+        val fragment = ",\"compactNumbers\":${settings.compactNumbers},\"use24HourTime\":${settings.use24HourTime}" +
+            (if (settings.monthlyCostBudget > 0.0) ",\"monthlyCostBudget\":${settings.monthlyCostBudget}" else "")
+        return trimmed.dropLast(1) + fragment + "}"
     }
 
     /**
