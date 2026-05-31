@@ -11,6 +11,18 @@ import type {
 } from './types';
 
 // ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
+
+/** Sums all meaningful context reference counts for a period. */
+function totalContextRefs(p: UsageAnalysisPeriod): number {
+	const r = p.contextReferences;
+	return (r.file ?? 0) + (r.codebase ?? 0) + (r.workspace ?? 0) + (r.selection ?? 0)
+		+ (r.symbol ?? 0) + (r.terminal ?? 0) + (r.clipboard ?? 0) + (r.changes ?? 0)
+		+ (r.pullRequest ?? 0);
+}
+
+// ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
@@ -142,6 +154,96 @@ export const INSIGHT_CATALOG: InsightDefinition[] = [
 			return (m.agent ?? 0) === 0 && (m.edit ?? 0) > 3;
 		},
 		weight: 60,
+	},
+
+	// ── Context quality ──────────────────────────────────────────────────────
+	{
+		id: 'low-context-diversity',
+		category: 'context',
+		severity: 'opportunity',
+		title: '🔍 Most of your sessions have no context attached',
+		buildBody: (ctx) => {
+			const sessions = ctx.last30Days.sessions;
+			const total = totalContextRefs(ctx.last30Days);
+			const noContextPct = Math.round(Math.max(0, 1 - total / sessions) * 100);
+			return `About ${noContextPct}% of your ${sessions} sessions in the last 30 days had no context references. ` +
+				`Try using \`#file\` to attach relevant files, \`@workspace\` to search your codebase, ` +
+				`or select code before asking — Copilot's answers improve significantly with relevant context.`;
+		},
+		appliesTo: (ctx) => {
+			if (ctx.last30Days.sessions < 10) { return false; }
+			const total = totalContextRefs(ctx.last30Days);
+			return total < ctx.last30Days.sessions * 0.3;
+		},
+		weight: 65,
+	},
+	{
+		id: 'only-using-file-refs',
+		category: 'context',
+		severity: 'tip',
+		title: '📂 Broaden your context beyond file references',
+		buildBody: (_ctx) => {
+			return `You attach files frequently, but there's more context available. ` +
+				`Try \`#codebase\` or \`@workspace\` to let Copilot search across your entire project for relevant code, ` +
+				`or select a specific code block before asking for precision on a particular snippet.`;
+		},
+		appliesTo: (ctx) => {
+			const refs = ctx.last30Days.contextReferences;
+			return (refs.file ?? 0) > 20 && (refs.codebase ?? 0) < 5 && (refs.selection ?? 0) < 5;
+		},
+		weight: 45,
+	},
+	{
+		id: 'good-context-variety',
+		category: 'context',
+		severity: 'celebration',
+		title: '🌟 Great job using diverse context references',
+		buildBody: (ctx) => {
+			const refs = ctx.last30Days.contextReferences;
+			const activeTypes = [
+				refs.file,
+				(refs.codebase ?? 0) + (refs.workspace ?? 0),
+				refs.selection,
+				refs.symbol,
+				refs.terminal,
+				refs.clipboard,
+				refs.changes,
+			].filter(v => (v ?? 0) > 3).length;
+			return `You're using ${activeTypes} different types of context references in the last 30 days — ` +
+				`\`#file\`, \`#selection\`, \`@workspace\`, and more. ` +
+				`Diverse context helps Copilot understand exactly what you're working with and deliver more precise answers.`;
+		},
+		appliesTo: (ctx) => {
+			const refs = ctx.last30Days.contextReferences;
+			const countAboveThreshold = [
+				refs.file,
+				(refs.codebase ?? 0) + (refs.workspace ?? 0),
+				refs.selection,
+				refs.symbol,
+				refs.terminal,
+				refs.clipboard,
+				refs.changes,
+			].filter(v => (v ?? 0) > 3).length;
+			return countAboveThreshold >= 4;
+		},
+		weight: 30,
+	},
+	{
+		id: 'conversation-depth-low',
+		category: 'consistency',
+		severity: 'tip',
+		title: '💬 Try refining answers within the same conversation',
+		buildBody: (ctx) => {
+			const avg = ctx.last30Days.conversationPatterns.avgTurnsPerSession.toFixed(1);
+			return `Your conversations average ${avg} turns per session in the last 30 days. ` +
+				`When Copilot's first answer isn't quite right, follow up in the same conversation — ` +
+				`it retains context across turns and often converges to the right answer faster than starting fresh.`;
+		},
+		appliesTo: (ctx) => {
+			if (ctx.last30Days.sessions < 10) { return false; }
+			return ctx.last30Days.conversationPatterns.avgTurnsPerSession < 1.5;
+		},
+		weight: 50,
 	},
 
 	// ── Consistency ─────────────────────────────────────────────────────────
