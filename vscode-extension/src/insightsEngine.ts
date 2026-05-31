@@ -14,7 +14,7 @@ import type {
 // Public types
 // ---------------------------------------------------------------------------
 
-export type InsightCategory = 'context' | 'agentic' | 'customization' | 'consistency' | 'tools';
+export type InsightCategory = 'context' | 'agentic' | 'customization' | 'consistency' | 'tools' | 'trend';
 export type InsightSeverity = 'tip' | 'opportunity' | 'celebration';
 export type InsightStatus = 'new' | 'seen' | 'dismissed' | 'snoozed' | 'done';
 
@@ -165,6 +165,101 @@ export const INSIGHT_CATALOG: InsightDefinition[] = [
 			return singleTurnSessions / total > 0.80;
 		},
 		weight: 50,
+	},
+
+	// ── Trend ────────────────────────────────────────────────────────────────
+	{
+		id: 'sessions-trending-up',
+		category: 'trend',
+		severity: 'celebration',
+		title: '🚀 Your Copilot usage is on the rise!',
+		buildBody: (ctx) => {
+			const dailyAvg = ctx.last30Days.sessions / 30;
+			const pct = Math.round((ctx.today.sessions / dailyAvg - 1) * 100);
+			return `You've had ${ctx.today.sessions} session${ctx.today.sessions !== 1 ? 's' : ''} today — ` +
+				`${pct}% above your daily average of ${dailyAvg.toFixed(1)} over the last 30 days. ` +
+				`Great momentum! Keep the streak going.`;
+		},
+		appliesTo: (ctx) => {
+			if (ctx.last30Days.sessions <= 0) { return false; }
+			const dailyAvg = ctx.last30Days.sessions / 30;
+			return ctx.today.sessions > dailyAvg * 1.3;
+		},
+		weight: 40,
+		allowToast: true,
+	},
+	{
+		id: 'sessions-trending-down',
+		category: 'trend',
+		severity: 'opportunity',
+		title: '💡 No Copilot session yet today',
+		buildBody: (_ctx) => {
+			return `You haven't started a Copilot session yet today — open a project and let Copilot help.`;
+		},
+		appliesTo: (ctx) => {
+			return ctx.last30Days.sessions > 10 && ctx.today.sessions === 0;
+		},
+		weight: 55,
+	},
+	{
+		id: 'agent-mode-growth',
+		category: 'trend',
+		severity: 'celebration',
+		title: '🤖 You\'re using Agent mode more — nice!',
+		buildBody: (ctx) => {
+			const todayTotal = ctx.today.modeUsage.ask + ctx.today.modeUsage.edit + ctx.today.modeUsage.agent;
+			const last30Total = ctx.last30Days.modeUsage.ask + ctx.last30Days.modeUsage.edit + ctx.last30Days.modeUsage.agent;
+			const todayPct = Math.round((ctx.today.modeUsage.agent / todayTotal) * 100);
+			const last30Pct = Math.round((ctx.last30Days.modeUsage.agent / last30Total) * 100);
+			return `Agent mode made up ${todayPct}% of your interactions today, up from ${last30Pct}% over the last 30 days. ` +
+				`Leaning into Agent mode for complex, multi-file tasks is a sign of growing AI engineering fluency!`;
+		},
+		appliesTo: (ctx) => {
+			if (ctx.last30Days.modeUsage.agent <= 0 || ctx.today.modeUsage.agent <= 0) { return false; }
+			const todayTotal = ctx.today.modeUsage.ask + ctx.today.modeUsage.edit + ctx.today.modeUsage.agent;
+			const last30Total = ctx.last30Days.modeUsage.ask + ctx.last30Days.modeUsage.edit + ctx.last30Days.modeUsage.agent;
+			if (todayTotal <= 0 || last30Total <= 0) { return false; }
+			const todayShare = ctx.today.modeUsage.agent / todayTotal;
+			const last30Share = ctx.last30Days.modeUsage.agent / last30Total;
+			return (todayShare - last30Share) > 0.10;
+		},
+		weight: 45,
+		allowToast: true,
+	},
+	{
+		id: 'context-refs-trending-up',
+		category: 'trend',
+		severity: 'celebration',
+		title: '📎 Your context usage is improving!',
+		buildBody: (ctx) => {
+			const todayRefs = ctx.today.contextReferences.file + ctx.today.contextReferences.codebase
+				+ ctx.today.contextReferences.selection + ctx.today.contextReferences.symbol
+				+ ctx.today.contextReferences.workspace + ctx.today.contextReferences.terminal
+				+ ctx.today.contextReferences.vscode + ctx.today.contextReferences.implicitSelection;
+			const last30Total = ctx.last30Days.contextReferences.file + ctx.last30Days.contextReferences.codebase
+				+ ctx.last30Days.contextReferences.selection + ctx.last30Days.contextReferences.symbol
+				+ ctx.last30Days.contextReferences.workspace + ctx.last30Days.contextReferences.terminal
+				+ ctx.last30Days.contextReferences.vscode + ctx.last30Days.contextReferences.implicitSelection;
+			const dailyAvg = last30Total / 30;
+			const pct = Math.round((todayRefs / dailyAvg - 1) * 100);
+			return `You used ${todayRefs} context reference${todayRefs !== 1 ? 's' : ''} today — ` +
+				`${pct}% above your 30-day daily average of ${dailyAvg.toFixed(1)}. ` +
+				`Rich context (files, symbols, codebase) helps Copilot give more precise, targeted answers.`;
+		},
+		appliesTo: (ctx) => {
+			const last30Total = ctx.last30Days.contextReferences.file + ctx.last30Days.contextReferences.codebase
+				+ ctx.last30Days.contextReferences.selection + ctx.last30Days.contextReferences.symbol
+				+ ctx.last30Days.contextReferences.workspace + ctx.last30Days.contextReferences.terminal
+				+ ctx.last30Days.contextReferences.vscode + ctx.last30Days.contextReferences.implicitSelection;
+			if (last30Total <= 0) { return false; }
+			const dailyAvg = last30Total / 30;
+			const todayTotal = ctx.today.contextReferences.file + ctx.today.contextReferences.codebase
+				+ ctx.today.contextReferences.selection + ctx.today.contextReferences.symbol
+				+ ctx.today.contextReferences.workspace + ctx.today.contextReferences.terminal
+				+ ctx.today.contextReferences.vscode + ctx.today.contextReferences.implicitSelection;
+			return todayTotal > dailyAvg * 1.4;
+		},
+		weight: 35,
 	},
 ];
 
