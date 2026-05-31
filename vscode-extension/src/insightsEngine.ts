@@ -303,6 +303,65 @@ export const INSIGHT_CATALOG: InsightDefinition[] = [
 		weight: 50,
 	},
 
+	// ── Tools / MCP ─────────────────────────────────────────────────────────
+	{
+		id: 'no-mcp-in-agent-mode',
+		category: 'tools',
+		severity: 'tip',
+		title: '🔌 Extend Agent mode with MCP servers',
+		buildBody: (_ctx) => {
+			return `You use Agent mode regularly — MCP (Model Context Protocol) servers can extend what Copilot can do in agent sessions, ` +
+				`like reading databases, calling APIs, or browsing docs. Search for 'MCP servers VS Code' to explore options.`;
+		},
+		appliesTo: (ctx) => {
+			const m = ctx.last30Days.modeUsage;
+			return (m.agent ?? 0) >= 5 && ctx.last30Days.mcpTools.total === 0;
+		},
+		weight: 55,
+	},
+	{
+		id: 'mcp-tools-active',
+		category: 'tools',
+		severity: 'celebration',
+		title: '🛠️ You\'re actively using MCP tools',
+		buildBody: (ctx) => {
+			const byTool = ctx.last30Days.mcpTools.byTool;
+			const total = ctx.last30Days.mcpTools.total;
+			let topTool: string | null = null;
+			let topCount = 0;
+			for (const [tool, count] of Object.entries(byTool)) {
+				if (count > topCount) {
+					topCount = count;
+					topTool = tool;
+				}
+			}
+			if (topTool) {
+				return `You're actively using MCP tools in your Copilot sessions — great! Your most-used tool: ${topTool} (${topCount} calls).`;
+			}
+			return `You're using ${total} MCP tool calls — great adoption of extended Copilot capabilities!`;
+		},
+		appliesTo: (ctx) => ctx.last30Days.mcpTools.total >= 10,
+		weight: 35,
+		allowToast: false,
+	},
+	{
+		id: 'install-extensions',
+		category: 'tools',
+		severity: 'tip',
+		title: '🧩 Discover Agent mode and MCP extensions',
+		buildBody: (_ctx) => {
+			return `If you haven't explored Agent mode yet, it's worth trying for complex multi-file tasks. ` +
+				`Agent mode can use tools — including MCP servers you install — to complete tasks more autonomously.`;
+		},
+		appliesTo: (ctx) => {
+			if (ctx.last30Days.sessions < 10) { return false; }
+			const m = ctx.last30Days.modeUsage;
+			// Only show when try-agent-mode wouldn't fire (edit <= 3)
+			return (m.agent ?? 0) === 0 && (m.edit ?? 0) <= 3 && ctx.last30Days.mcpTools.total === 0;
+		},
+		weight: 40,
+	},
+
 	// ── Conversation patterns ────────────────────────────────────────────────
 	{
 		id: 'mostly-single-turn',
