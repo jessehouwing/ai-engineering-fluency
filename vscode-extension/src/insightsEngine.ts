@@ -8,6 +8,7 @@ import type {
 	UsageAnalysisPeriod,
 	MissedPotentialWorkspace,
 	WorkspaceCustomizationMatrix,
+	TodaySessionSummary,
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -35,6 +36,7 @@ export interface InsightContext {
 	last30Days: UsageAnalysisPeriod;
 	missedPotential: MissedPotentialWorkspace[];
 	customizationMatrix?: WorkspaceCustomizationMatrix | null;
+	todaySessions?: TodaySessionSummary[];
 }
 
 export interface InsightState {
@@ -362,6 +364,64 @@ export const INSIGHT_CATALOG: InsightDefinition[] = [
 			return todayTotal > dailyAvg * 1.4;
 		},
 		weight: 35,
+	},
+
+	// ── Focus & Productivity ─────────────────────────────────────────────────
+	{
+		id: 'productive-session-today',
+		category: 'consistency',
+		severity: 'celebration',
+		title: '🏆 Great deep-work session today!',
+		buildBody: (ctx) => {
+			const best = (ctx.todaySessions ?? [])
+				.filter(s => s.interactions > 20)
+				.sort((a, b) => b.interactions - a.interactions)[0];
+			return `Your session in ${best.editor} had ${best.interactions} interactions — a sign of great deep work!`;
+		},
+		appliesTo: (ctx) => {
+			if (!ctx.todaySessions || ctx.todaySessions.length === 0) { return false; }
+			return ctx.todaySessions.some(s => s.interactions > 20);
+		},
+		weight: 40,
+		allowToast: true,
+	},
+	{
+		id: 'morning-sessions-pattern',
+		category: 'consistency',
+		severity: 'tip',
+		title: '🌅 You code with AI best in the morning',
+		buildBody: () => {
+			return `You tend to start coding with AI early — your morning sessions show good focus habits.`;
+		},
+		appliesTo: (ctx) => {
+			const sessions = ctx.todaySessions ?? [];
+			if (sessions.length < 3) { return false; }
+			const morningSessions = sessions.filter(s => {
+				if (!s.lastActivity) { return false; }
+				return new Date(s.lastActivity).getHours() < 10;
+			});
+			return morningSessions.length >= 2;
+		},
+		weight: 35,
+	},
+	{
+		id: 'short-scattered-sessions',
+		category: 'consistency',
+		severity: 'opportunity',
+		title: '⚡ Consolidate short sessions for deeper focus',
+		buildBody: (ctx) => {
+			const sessions = ctx.todaySessions ?? [];
+			const avg = Math.round(sessions.reduce((sum, s) => sum + s.interactions, 0) / sessions.length);
+			return `You had ${sessions.length} short sessions today (avg ${avg} interactions each). ` +
+				`Fewer, deeper sessions often produce better results — try keeping context within one session.`;
+		},
+		appliesTo: (ctx) => {
+			const sessions = ctx.todaySessions ?? [];
+			if (sessions.length < 5) { return false; }
+			const avg = sessions.reduce((sum, s) => sum + s.interactions, 0) / sessions.length;
+			return avg < 5;
+		},
+		weight: 55,
 	},
 ];
 
