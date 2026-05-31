@@ -10,10 +10,35 @@ import type {
 	WorkspaceCustomizationMatrix,
 	TodaySessionSummary,
 } from './types';
+import toolNamesData from './toolNames.json';
+import { resolveGuidMcpToolName } from './utils/toolUtils';
 
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
+
+const TOOL_NAME_MAP: Record<string, string> = toolNamesData as Record<string, string>;
+
+/**
+ * Returns a human-friendly display name for an MCP tool ID.
+ * 1. Exact match in toolNames.json
+ * 2. GUID-keyed MCP pattern (e.g. M365 Connector)
+ * 3. Parse mcp__<server>__<tool> → "Server: Tool Name"
+ * 4. Fall back to the raw ID
+ */
+function friendlyToolName(id: string): string {
+	if (TOOL_NAME_MAP[id]) { return TOOL_NAME_MAP[id]; }
+	const guid = resolveGuidMcpToolName(id);
+	if (guid) { return guid; }
+	// Parse mcp__ServerName__tool_name → "Server Name: Tool Name"
+	const mcpMatch = /^mcp__([^_][^_]*)__(.+)$/.exec(id);
+	if (mcpMatch) {
+		const server = mcpMatch[1].replace(/_/g, ' ').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+		const tool = mcpMatch[2].replace(/_/g, ' ').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+		return `${server}: ${tool}`;
+	}
+	return id;
+}
 
 /** Sums all meaningful context reference counts for a period. */
 function totalContextRefs(p: UsageAnalysisPeriod): number {
@@ -336,7 +361,7 @@ export const INSIGHT_CATALOG: InsightDefinition[] = [
 				}
 			}
 			if (topTool) {
-				return `You're actively using MCP tools in your Copilot sessions — great! Your most-used tool: ${topTool} (${topCount} calls).`;
+				return `You're actively using MCP tools in your Copilot sessions — great! Your most-used tool: ${friendlyToolName(topTool)} (${topCount} calls).`;
 			}
 			return `You're using ${total} MCP tool calls — great adoption of extended Copilot capabilities!`;
 		},
