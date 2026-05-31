@@ -606,7 +606,7 @@ export interface WorkspaceCustomizationSummary {
 // Insights / Nudges framework
 // ---------------------------------------------------------------------------
 
-export type InsightCategory = 'context' | 'agentic' | 'customization' | 'consistency' | 'tools';
+export type InsightCategory = 'context' | 'agentic' | 'customization' | 'consistency' | 'tools' | 'trend';
 export type InsightSeverity = 'tip' | 'opportunity' | 'celebration';
 export type InsightStatus = 'new' | 'seen' | 'dismissed' | 'snoozed' | 'done';
 
