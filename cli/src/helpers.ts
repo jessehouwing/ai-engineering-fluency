@@ -32,6 +32,7 @@ import toolNamesData from '../../vscode-extension/src/toolNames.json';
 import {
 	type SessionData,
 	type DailyEntry,
+	type PeriodStats,
 	effectiveTokens,
 	getEditorSourceFromPath,
 	runWithConcurrency,

@@ -109,7 +109,7 @@ export class CopilotCliStoreAccess {
 		if (fs.existsSync(wasmPath)) {
 			wasmBinary = fs.readFileSync(wasmPath);
 		}
-		const sqlJs = await initSqlJs(wasmBinary ? { wasmBinary } : undefined);
+		const sqlJs = await initSqlJs(wasmBinary ? { wasmBinary: wasmBinary.buffer as ArrayBuffer } : undefined);
 		this._sqlJsModule = sqlJs;
 		return sqlJs;
 	}

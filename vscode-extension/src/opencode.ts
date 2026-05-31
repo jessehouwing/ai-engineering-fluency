@@ -87,7 +87,7 @@ export class OpenCodeDataAccess {
 				if (fs.existsSync(wasmPath)) {
 					wasmBinary = fs.readFileSync(wasmPath);
 				}
-				const module = await initSqlJs(wasmBinary ? { wasmBinary } : undefined);
+				const module = await initSqlJs(wasmBinary ? { wasmBinary: wasmBinary.buffer as ArrayBuffer } : undefined);
 				this._sqlJsModule = module;
 				return module;
 			})().catch(err => {

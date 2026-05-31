@@ -9,6 +9,7 @@ import { calculateEstimatedCost } from '../../vscode-extension/src/tokenEstimati
 import { normalizePathForComparison } from '../../vscode-extension/src/workspaceHelpers';
 import { createEmptyContextRefs } from '../../vscode-extension/src/tokenEstimation';
 import type { ModelUsage, ModelPricing, PeriodStats, UsageAnalysisPeriod } from '../../vscode-extension/src/types';
+export type { PeriodStats, UsageAnalysisPeriod } from '../../vscode-extension/src/types';
 
 /** Type alias for a single model pricing entry from modelPricing.json. */
 export type ModelPricingEntry = ModelPricing;
