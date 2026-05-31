@@ -14,6 +14,8 @@ import { resolveFileUri } from '../../vscode-extension/src/workspacePathResolver
 import { parseSessionFileContent } from '../../vscode-extension/src/sessionParser';
 import { estimateTokensFromText, getModelFromRequest, isJsonlContent, estimateTokensFromJsonlSession, calculateEstimatedCost } from '../../vscode-extension/src/tokenEstimation';
 import { extractDailyFractions } from '../../vscode-extension/src/dailyAttribution';
+import { isJetBrainsSessionPath } from '../../vscode-extension/src/adapters/adapterPredicates';
+import { parseJetBrainsPartition } from '../../vscode-extension/src/jetbrains';
 import type { DetailedStats, ModelUsage, UsageAnalysisStats, WorkspaceCustomizationMatrix } from '../../vscode-extension/src/types';
 import { analyzeSessionUsage, mergeUsageAnalysis } from '../../vscode-extension/src/usageAnalysis';
 import { withErrorRecovery } from '../../vscode-extension/src/utils/errors';
@@ -278,6 +280,23 @@ export async function processSessionFile(filePath: string): Promise<SessionData 
 			actualTokens = result.actualTokens;
 			// Use per-model breakdown from session.shutdown events (more accurate than request-level estimates)
 			fileModelUsage = result.modelUsage;
+
+			// JetBrains partition files lack session.shutdown events, so the generic
+			// estimator returns empty modelUsage. Fall back to the JetBrains-specific
+			// parser which extracts model names from assistant.turn_start events so
+			// that cost calculation can produce non-zero values. When no model hint
+			// is detectable (ask-mode without tool calls), attribute the tokens to
+			// an 'unknown' bucket — calculateEstimatedCost falls back to gpt-4o-mini
+			// pricing for unrecognised model names.
+			if (Object.keys(fileModelUsage).length === 0 && isJetBrainsSessionPath(filePath)) {
+				const jbResult = parseJetBrainsPartition(content);
+				if (Object.keys(jbResult.modelUsage).length > 0) {
+					fileModelUsage = jbResult.modelUsage;
+				} else if (jbResult.tokens > 0) {
+					const modelKey = jbResult.modelHint && jbResult.modelHint !== 'unknown' ? jbResult.modelHint : 'unknown';
+					fileModelUsage = { [modelKey]: { inputTokens: jbResult.tokens, outputTokens: 0 } };
+				}
+			}
 
 			// Count interactions from JSONL
 			const lines = content.trim().split('\n');
