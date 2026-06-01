@@ -542,6 +542,12 @@ export async function calculateDailyStats(sessionFiles: string[]): Promise<{
 					}
 					dailyEntry.modelUsage[model].inputTokens += Math.round(usage.inputTokens * fraction);
 					dailyEntry.modelUsage[model].outputTokens += Math.round(usage.outputTokens * fraction);
+					if (usage.cachedReadTokens !== undefined) {
+						dailyEntry.modelUsage[model].cachedReadTokens = (dailyEntry.modelUsage[model].cachedReadTokens ?? 0) + Math.round(usage.cachedReadTokens * fraction);
+					}
+					if (usage.cacheCreationTokens !== undefined) {
+						dailyEntry.modelUsage[model].cacheCreationTokens = (dailyEntry.modelUsage[model].cacheCreationTokens ?? 0) + Math.round(usage.cacheCreationTokens * fraction);
+					}
 				}
 				const editor = data.editorSource;
 				if (!dailyEntry.editorUsage[editor]) {
@@ -564,6 +570,12 @@ export async function calculateDailyStats(sessionFiles: string[]): Promise<{
 				}
 				allEntry.modelUsage[model].inputTokens += Math.round(usage.inputTokens * fraction);
 				allEntry.modelUsage[model].outputTokens += Math.round(usage.outputTokens * fraction);
+				if (usage.cachedReadTokens !== undefined) {
+					allEntry.modelUsage[model].cachedReadTokens = (allEntry.modelUsage[model].cachedReadTokens ?? 0) + Math.round(usage.cachedReadTokens * fraction);
+				}
+				if (usage.cacheCreationTokens !== undefined) {
+					allEntry.modelUsage[model].cacheCreationTokens = (allEntry.modelUsage[model].cacheCreationTokens ?? 0) + Math.round(usage.cacheCreationTokens * fraction);
+				}
 			}
 			const editor = data.editorSource;
 			if (!allEntry.editorUsage[editor]) {
