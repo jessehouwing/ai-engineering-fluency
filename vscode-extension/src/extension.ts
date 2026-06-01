@@ -2599,6 +2599,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 		// Refresh status bar text and background color (respects new display settings)
 		this.setStatusBarText(this.buildStatusBarText(stats));
 		this.updateStatusBarBackgroundColor(stats);
+		this.statusBarItem.tooltip = this.buildTooltipMarkdown(stats);
 		if (this.detailsPanel) {
 			this.detailsPanel.webview.html = this.getDetailsHtml(this.detailsPanel.webview, stats);
 		}
