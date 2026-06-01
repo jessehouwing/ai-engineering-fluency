@@ -752,7 +752,7 @@ function buildCostViewConfig(period: ChartPeriodData, baseOptions: ReturnType<ty
 	const lastIdx = period.costData.length - 1;
 	const projExtra = !isRolling && lastIdx >= 0 ? computeProjectionExtra(period.costData[lastIdx], getCurrentPeriodFraction(currentPeriod)) : null;
 	const projDs = projExtra !== null ? [{ label: PROJECTION_LABELS[currentPeriod], data: period.costData.map((_: number, i: number) => i === lastIdx ? projExtra : 0), backgroundColor: 'rgba(34, 197, 94, 0.2)', borderColor: 'rgba(34, 197, 94, 0.5)', borderWidth: 1, yAxisID: 'y' }] : [];
-	const budget = data.monthlyCostBudget ?? 0;
+	const budget = monthlyBudget;
 	const budgetDs = budget > 0 && currentPeriod === 'month' ? [{ label: `Monthly Budget ($${budget.toFixed(2)})`, data: period.labels.map(() => budget), type: 'line' as const, borderColor: 'rgba(255, 165, 0, 0.9)', borderWidth: 2, borderDash: [6, 4], pointRadius: 0, fill: false, yAxisID: 'y' }] : [];
 	const rollingLabel = getRollingLabel();
 	const showBudgetLine = currentPeriod === 'month' && monthlyBudget > 0;

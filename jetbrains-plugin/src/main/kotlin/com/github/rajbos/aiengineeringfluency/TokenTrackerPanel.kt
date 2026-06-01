@@ -359,7 +359,7 @@ class TokenTrackerPanel(
         if (!trimmed.endsWith("}")) return json
         val settings = PluginSettings.instance.state
         val fragment = ",\"compactNumbers\":${settings.compactNumbers},\"use24HourTime\":${settings.use24HourTime}" +
-            (if (settings.monthlyCostBudget > 0.0) ",\"monthlyCostBudget\":${settings.monthlyCostBudget}" else "")
+            (if (settings.monthlyCostBudget > 0.0) ",\"monthlyBudget\":${settings.monthlyCostBudget}" else "")
         return trimmed.dropLast(1) + fragment + "}"
     }
 
