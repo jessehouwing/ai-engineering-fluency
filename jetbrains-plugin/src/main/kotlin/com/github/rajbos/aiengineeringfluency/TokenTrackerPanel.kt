@@ -224,14 +224,16 @@ class TokenTrackerPanel(
                 var overlay = document.getElementById('loading-overlay');
                 if (overlay) {
                     overlay.innerHTML =
-                        '<div style="font-size:32px">&#x26A0;</div>' +
-                        '<div style="font-size:15px;font-weight:600;margin:8px 0">Error loading Copilot usage data</div>' +
-                        '<div style="font-size:12px;color:#999;max-width:480px;white-space:pre-wrap;word-break:break-word">' +
-                            '$safe' +
-                        '</div>' +
-                        $retryBlock
-                        '<div style="margin-top:16px;font-size:12px">' +
-                            'Something unexpected? <a href="https://github.com/rajbos/ai-engineering-fluency/issues" target="_blank" style="color:#4daafc;text-decoration:none">Report an issue</a>' +
+                        '<div style="width:100%;max-width:600px;background:var(--vscode-sideBar-background);border:1px solid var(--vscode-panel-border);border-radius:16px;padding:24px 28px;box-shadow:0 8px 32px rgba(0,0,0,0.3);text-align:center">' +
+                            '<div style="font-size:32px;margin-bottom:8px">&#x26A0;</div>' +
+                            '<div style="font-size:15px;font-weight:600;margin-bottom:8px">Error loading Copilot usage data</div>' +
+                            '<div style="font-size:12px;color:#999;max-width:480px;margin:0 auto;white-space:pre-wrap;word-break:break-word;text-align:left">' +
+                                '$safe' +
+                            '</div>' +
+                            $retryBlock
+                            '<div style="margin-top:16px;font-size:12px">' +
+                                'Something unexpected? <a href="https://github.com/rajbos/ai-engineering-fluency/issues" target="_blank" style="color:#4daafc;text-decoration:none">Report an issue</a>' +
+                            '</div>' +
                         '</div>';
                 }
             })();
