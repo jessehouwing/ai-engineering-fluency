@@ -62,7 +62,7 @@ object WebviewResources {
         // assigns the real value as soon as the CLI returns.
         // When initial data is provided, hide the loading overlay and show root immediately
         val overlayDisplayStyle = if (initialStatsJson != null) "display: none"
-            else "display: flex; align-items: center; justify-content: center; min-height: calc(100vh - 32px); padding: 20px; box-sizing: border-box"
+            else "display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: calc(100vh - 32px); padding: 20px; box-sizing: border-box"
         val rootStyle = if (initialStatsJson != null) "" else "display: none"
 
         return """
