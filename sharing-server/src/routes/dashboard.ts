@@ -381,9 +381,9 @@ function layout(title: string, body: string): string {
   .fluency-stage-pill { display: inline-block; padding: 2px 8px; border-radius: 10px;
     font-size: 0.72rem; font-weight: 600; margin-left: auto; white-space: nowrap; flex-shrink: 0; }
   .stage-1 { background: rgba(147,197,253,0.15); color: #93c5fd; border: 1px solid rgba(147,197,253,0.4); }
-  .stage-2 { background: rgba(110,231,183,0.15); color: #6ee7b7; border: 1px solid rgba(110,231,183,0.4); }
+  .stage-2 { background: rgba(167,139,250,0.15); color: #a78bfa; border: 1px solid rgba(167,139,250,0.4); }
   .stage-3 { background: rgba(59,130,246,0.15);  color: #3b82f6; border: 1px solid rgba(59,130,246,0.4); }
-  .stage-4 { background: rgba(16,185,129,0.15);  color: #10b981; border: 1px solid rgba(16,185,129,0.4); }
+  .stage-4 { background: rgba(34,211,238,0.15);  color: #22d3ee; border: 1px solid rgba(34,211,238,0.4); }
   .fluency-tips { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
   .fluency-tips li { font-size: 0.8rem; color: #8b949e; padding-left: 14px; position: relative;
     overflow-wrap: break-word; word-break: break-word; }
@@ -848,7 +848,7 @@ function dashboardPage(user: UserRow, uploads: UploadRow[], isAdmin: boolean): s
 	const stageStars = fluencyScore
 		? ['', '⭐', '⭐⭐', '⭐⭐⭐', '⭐⭐⭐⭐'][fluencyScore.overallStage] ?? ''
 		: '';
-	const stageColorMap: Record<number, string> = { 1: '#93c5fd', 2: '#6ee7b7', 3: '#3b82f6', 4: '#10b981' };
+	const stageColorMap: Record<number, string> = { 1: '#93c5fd', 2: '#a78bfa', 3: '#3b82f6', 4: '#22d3ee' };
 	const stageColor = fluencyScore ? (stageColorMap[fluencyScore.overallStage] ?? '#93c5fd') : '#93c5fd';
 
 	const fluencyBadgeHtml = fluencyScore ? `

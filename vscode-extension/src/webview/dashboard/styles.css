@@ -247,9 +247,9 @@
 }
 
 .fluency-badge.stage-2 {
-	background-color: rgba(110, 231, 183, 0.15);
-	color: #6ee7b7;
-	border: 1px solid rgba(110, 231, 183, 0.4);
+	background-color: rgba(167, 139, 250, 0.15);
+	color: #a78bfa;
+	border: 1px solid rgba(167, 139, 250, 0.4);
 }
 
 .fluency-badge.stage-3 {
@@ -259,9 +259,9 @@
 }
 
 .fluency-badge.stage-4 {
-	background-color: rgba(16, 185, 129, 0.15);
-	color: #10b981;
-	border: 1px solid rgba(16, 185, 129, 0.4);
+	background-color: rgba(34, 211, 238, 0.15);
+	color: #22d3ee;
+	border: 1px solid rgba(34, 211, 238, 0.4);
 }
 
 .action-header {
@@ -385,15 +385,15 @@
 
 /* Re-use matching stage colors for inline badges */
 .fluency-category-badge.stage-1 { background: rgba(147,197,253,0.15); color: #93c5fd; }
-.fluency-category-badge.stage-2 { background: rgba(110,231,183,0.15); color: #6ee7b7; }
+.fluency-category-badge.stage-2 { background: rgba(167,139,250,0.15); color: #a78bfa; }
 .fluency-category-badge.stage-3 { background: rgba(59,130,246,0.15);  color: #3b82f6; }
-.fluency-category-badge.stage-4 { background: rgba(16,185,129,0.15);  color: #10b981; }
+.fluency-category-badge.stage-4 { background: rgba(34,211,238,0.15);  color: #22d3ee; }
 
 /* Left-border accent matching stage color */
 .stage-border-1 { border-left: 3px solid #93c5fd; }
-.stage-border-2 { border-left: 3px solid #6ee7b7; }
+.stage-border-2 { border-left: 3px solid #a78bfa; }
 .stage-border-3 { border-left: 3px solid #3b82f6; }
-.stage-border-4 { border-left: 3px solid #10b981; }
+.stage-border-4 { border-left: 3px solid #22d3ee; }
 
 /* Stage progress pips */
 .fluency-stage-bar {
@@ -409,9 +409,9 @@
 }
 
 .stage-pip.filled.stage-pip-1 { background: #93c5fd; }
-.stage-pip.filled.stage-pip-2 { background: #6ee7b7; }
+.stage-pip.filled.stage-pip-2 { background: #a78bfa; }
 .stage-pip.filled.stage-pip-3 { background: #3b82f6; }
-.stage-pip.filled.stage-pip-4 { background: #10b981; }
+.stage-pip.filled.stage-pip-4 { background: #22d3ee; }
 
 /* Tips */
 .fluency-tips {
