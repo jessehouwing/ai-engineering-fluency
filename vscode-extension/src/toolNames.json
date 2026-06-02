@@ -759,4 +759,14 @@
   "mcp_zettelkasten_zk_remove_link": "Zettelkasten: Remove Link",
   "mcp_zettelkasten_zk_search_notes": "Zettelkasten: Search Notes",
   "mcp_zettelkasten_zk_update_note": "Zettelkasten: Update Note"
+  ,"copilot_listCodeUsages": "Playwright MCP: List Code Usages"
+  ,"create_new_file": "Windsurf: File Create"
+  ,"edit_existing_file": "Windsurf: File Edit"
+  ,"github.copilot.editingSession": "GitHub MCP (Local): Assign Copilot to Issue"
+  ,"mssql_connect": "SQL Server Connection"
+  ,"mssql_disconnect": "SQL Server Disconnection"
+  ,"mssql_list_tables": "SQL Server Tables List"
+  ,"mssql_run_query": "SQL Server Query Execution"
+  ,"run_terminal_command": "Terminal Command Run"
+  ,"single_find_and_replace": "Find and Replace"
 }
