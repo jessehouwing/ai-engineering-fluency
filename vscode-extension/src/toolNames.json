@@ -680,6 +680,8 @@
   "aspire-get_doc": "Get Doc",
   "aspire-search_docs": "Search Docs",
   "vote_memory": "Vote Memory",
+  "create_issue": "Issue Create",
+  "save_workflow": "Workflow Save",
   "context-mode_ctx_execute": "Context Mode: Execute",
   "mcp_context-mode_ctx_batch_execute": "Context Mode: Batch Execute",
   "mcp_context-mode_ctx_execute": "Context Mode: Execute",
