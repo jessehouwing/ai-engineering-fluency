@@ -270,6 +270,7 @@ export interface SessionUsageAnalysis {
 export interface ToolCallUsage {
   total: number;
   byTool: { [toolName: string]: number };
+  outputTokensByTool?: { [toolName: string]: number };
 }
 
 export interface ModeUsage {

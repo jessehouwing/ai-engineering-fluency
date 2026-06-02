@@ -122,9 +122,9 @@
 }
 
 .level-card.stage-1 { border-left: 4px solid #93c5fd; }
-.level-card.stage-2 { border-left: 4px solid #6ee7b7; }
+.level-card.stage-2 { border-left: 4px solid #a78bfa; }
 .level-card.stage-3 { border-left: 4px solid #3b82f6; }
-.level-card.stage-4 { border-left: 4px solid #10b981; }
+.level-card.stage-4 { border-left: 4px solid #22d3ee; }
 
 .level-header {
 	display: flex;
@@ -146,9 +146,9 @@
 }
 
 .badge-1 { background: rgba(147, 197, 253, 0.2); color: #93c5fd; }
-.badge-2 { background: rgba(110, 231, 183, 0.2); color: #6ee7b7; }
+.badge-2 { background: rgba(167, 139, 250, 0.2); color: #a78bfa; }
 .badge-3 { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
-.badge-4 { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+.badge-4 { background: rgba(34, 211, 238, 0.2); color: #22d3ee; }
 
 .level-description {
 	font-size: 12px;

@@ -63,21 +63,26 @@ class TokenTrackerPanel(
      * background thread, then reloads [view] with the data pre-embedded.
      * Subsequent navigations use the warm cache — no spinner needed.
      *
-     * [onComplete] is invoked on the EDT after the fetch finishes (success or
-     * failure), before the result is applied. Use it for cleanup such as
-     * resetting a timeout override.
+     * [onSuccess] is invoked on the EDT after a successful fetch, before loading the view.
+     * [onFailure] is invoked on the EDT after a failed fetch, before showing the error.
+     * Use these for cleanup such as persisting or resetting a timeout override.
      */
-    private fun prefetchAndLoadView(view: String, onComplete: (() -> Unit)? = null) {
+    private fun prefetchAndLoadView(
+        view: String,
+        onSuccess: (() -> Unit)? = null,
+        onFailure: (() -> Unit)? = null,
+    ) {
         ApplicationManager.getApplication().executeOnPooledThread {
             val result = runCatching { CliBridge.prefetchAll() }
             ApplicationManager.getApplication().invokeLater {
-                onComplete?.invoke()
                 result.fold(
                     onSuccess = {
+                        onSuccess?.invoke()
                         // Cache is now warm — load the current view with data embedded
                         loadViewFromCache(currentView)
                     },
                     onFailure = { err ->
+                        onFailure?.invoke()
                         log.warn("CLI prefetch failed", err)
                         showError(err.message ?: "Unknown error fetching stats")
                     },
@@ -225,14 +230,16 @@ class TokenTrackerPanel(
                 var overlay = document.getElementById('loading-overlay');
                 if (overlay) {
                     overlay.innerHTML =
-                        '<div style="font-size:32px">&#x26A0;</div>' +
-                        '<div style="font-size:15px;font-weight:600;margin:8px 0">Error loading Copilot usage data</div>' +
-                        '<div style="font-size:12px;color:#999;max-width:480px;white-space:pre-wrap;word-break:break-word">' +
-                            '$safe' +
-                        '</div>' +
-                        $retryBlock
-                        '<div style="margin-top:16px;font-size:12px">' +
-                            'Something unexpected? <a href="https://github.com/rajbos/ai-engineering-fluency/issues" target="_blank" style="color:#4daafc;text-decoration:none">Report an issue</a>' +
+                        '<div style="width:100%;max-width:600px;background:var(--vscode-sideBar-background);border:1px solid var(--vscode-panel-border);border-radius:16px;padding:24px 28px;box-shadow:0 8px 32px rgba(0,0,0,0.3);text-align:center">' +
+                            '<div style="font-size:32px;margin-bottom:8px">&#x26A0;</div>' +
+                            '<div style="font-size:15px;font-weight:600;margin-bottom:8px">Error loading Copilot usage data</div>' +
+                            '<div style="font-size:12px;color:#999;max-width:480px;margin:0 auto;white-space:pre-wrap;word-break:break-word;text-align:left">' +
+                                '$safe' +
+                            '</div>' +
+                            $retryBlock
+                            '<div style="margin-top:16px;font-size:12px">' +
+                                'Something unexpected? <a href="https://github.com/rajbos/ai-engineering-fluency/issues" target="_blank" style="color:#4daafc;text-decoration:none">Report an issue</a>' +
+                            '</div>' +
                         '</div>';
                 }
             })();
@@ -263,11 +270,15 @@ class TokenTrackerPanel(
                 }
 
                 "retryWithExtendedTimeout" -> {
-                    // Use a 5-minute timeout for the next fetch, then reset to default.
+                    // Use a 5-minute timeout for the next fetch. If it succeeds, persist it as the new default.
                     CliBridge.timeoutSeconds = 300L
                     CliBridge.invalidateCache()
                     browser.loadHTML(WebviewResources.buildHtml(currentView, hostBridgeInjectFunction = hostBridge.inject("payload")))
-                    prefetchAndLoadView(currentView, onComplete = { CliBridge.resetTimeout() })
+                    prefetchAndLoadView(
+                        currentView,
+                        onSuccess = { CliBridge.setPersistentTimeout(300L) },
+                        onFailure = { CliBridge.resetTimeout() }
+                    )
                 }
 
                 "showDetails" -> navigateToView("details")

@@ -1289,3 +1289,108 @@ test('isParsedSessionJson: full valid session object returns true', () => {
         lastMessageDate: 1700000060000,
     }), true);
 });
+
+// ---------------------------------------------------------------------------
+// outputTokensByTool tracking
+// ---------------------------------------------------------------------------
+
+test('mergeUsageAnalysis: accumulates outputTokensByTool when present', () => {
+    const period = emptyPeriod();
+    const a1 = emptyAnalysis();
+    a1.toolCalls.total = 2;
+    a1.toolCalls.byTool = { read: 2 };
+    a1.toolCalls.outputTokensByTool = { read: 1200 };
+
+    const a2 = emptyAnalysis();
+    a2.toolCalls.total = 1;
+    a2.toolCalls.byTool = { read: 1 };
+    a2.toolCalls.outputTokensByTool = { read: 800 };
+
+    mergeUsageAnalysis(period, a1);
+    mergeUsageAnalysis(period, a2);
+
+    assert.equal(period.toolCalls.outputTokensByTool?.['read'], 2000);
+});
+
+test('mergeUsageAnalysis: handles missing outputTokensByTool gracefully', () => {
+    const period = emptyPeriod();
+    const a = emptyAnalysis();
+    a.toolCalls.total = 1;
+    a.toolCalls.byTool = { search: 1 };
+    // No outputTokensByTool set
+
+    mergeUsageAnalysis(period, a);
+
+    assert.equal(period.toolCalls.outputTokensByTool, undefined);
+});
+
+test('mergeUsageAnalysis: merges outputTokensByTool from multiple tools', () => {
+    const period = emptyPeriod();
+    const a1 = emptyAnalysis();
+    a1.toolCalls.byTool = { read: 1, search: 1 };
+    a1.toolCalls.outputTokensByTool = { read: 500, search: 300 };
+
+    const a2 = emptyAnalysis();
+    a2.toolCalls.byTool = { read: 1, edit: 1 };
+    a2.toolCalls.outputTokensByTool = { read: 400, edit: 50 };
+
+    mergeUsageAnalysis(period, a1);
+    mergeUsageAnalysis(period, a2);
+
+    assert.equal(period.toolCalls.outputTokensByTool?.['read'], 900);
+    assert.equal(period.toolCalls.outputTokensByTool?.['search'], 300);
+    assert.equal(period.toolCalls.outputTokensByTool?.['edit'], 50);
+});
+
+test('analyzeSessionUsage: CLI JSONL tool.execution_complete with string content accumulates outputTokensByTool', async () => {
+    const events = [
+        { type: 'session.start', data: { selectedModel: 'claude-sonnet-4.5' }, timestamp: '2026-05-01T10:00:00Z' },
+        { type: 'tool.execution_start', data: { toolCallId: 'tc1', toolName: 'read', arguments: { path: '/foo' } } },
+        { type: 'tool.execution_complete', data: { toolCallId: 'tc1', success: true, result: { content: 'hello world this is file content' } } },
+    ];
+    const content = events.map(e => JSON.stringify(e)).join('\n');
+    const deps = makeMockDeps();
+    const result = await analyzeSessionUsage(deps, '/home/user/.copilot/session-state/abc/events.jsonl', content);
+
+    assert.ok(result.toolCalls.outputTokensByTool, 'outputTokensByTool should be defined');
+    assert.ok((result.toolCalls.outputTokensByTool?.['read'] ?? 0) > 0, 'read tool should have output tokens');
+});
+
+test('analyzeSessionUsage: CLI JSONL tool.execution_complete with content array accumulates outputTokensByTool', async () => {
+    const events = [
+        { type: 'session.start', data: { selectedModel: 'claude-sonnet-4.5' }, timestamp: '2026-05-01T10:00:00Z' },
+        { type: 'tool.execution_start', data: { toolCallId: 'tc2', toolName: 'search', arguments: { query: 'foo' } } },
+        {
+            type: 'tool.execution_complete',
+            data: {
+                toolCallId: 'tc2',
+                success: true,
+                result: {
+                    content: [
+                        { type: 'text', text: 'result one' },
+                        { type: 'text', text: 'result two' },
+                    ],
+                },
+            },
+        },
+    ];
+    const content = events.map(e => JSON.stringify(e)).join('\n');
+    const deps = makeMockDeps();
+    const result = await analyzeSessionUsage(deps, '/home/user/.copilot/session-state/abc/events.jsonl', content);
+
+    assert.ok(result.toolCalls.outputTokensByTool?.['search'] !== undefined, 'search tool should have output tokens');
+    assert.ok((result.toolCalls.outputTokensByTool?.['search'] ?? 0) > 0, 'search tool output tokens should be > 0');
+});
+
+test('analyzeSessionUsage: tool.execution_complete without content does not set outputTokensByTool', async () => {
+    const events = [
+        { type: 'session.start', data: { selectedModel: 'claude-sonnet-4.5' }, timestamp: '2026-05-01T10:00:00Z' },
+        { type: 'tool.execution_start', data: { toolCallId: 'tc3', toolName: 'run_in_terminal', arguments: {} } },
+        { type: 'tool.execution_complete', data: { toolCallId: 'tc3', success: true, result: {} } },
+    ];
+    const content = events.map(e => JSON.stringify(e)).join('\n');
+    const deps = makeMockDeps();
+    const result = await analyzeSessionUsage(deps, '/home/user/.copilot/session-state/abc/events.jsonl', content);
+
+    assert.equal(result.toolCalls.outputTokensByTool?.['run_in_terminal'] ?? 0, 0, 'empty result should not track tokens');
+});

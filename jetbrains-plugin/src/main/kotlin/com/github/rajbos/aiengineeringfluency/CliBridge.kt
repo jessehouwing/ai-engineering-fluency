@@ -1,6 +1,7 @@
 package com.github.rajbos.aiengineeringfluency
 
 import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.SystemInfo
@@ -30,11 +31,33 @@ object CliBridge {
 
     private val log = Logger.getInstance(CliBridge::class.java)
     private const val DEFAULT_TIMEOUT_SECONDS = 120L
+    private const val PREFERENCES_KEY_TIMEOUT = "ai-engineering-fluency.cli.timeout.seconds"
 
     /** Timeout used for CLI invocations; can be overridden (e.g. for "wait longer" retry). */
     @Volatile var timeoutSeconds: Long = DEFAULT_TIMEOUT_SECONDS
 
-    /** Resets [timeoutSeconds] back to the default (120 s). */
+    init {
+        // Load the stored timeout preference on startup, defaulting to 120 seconds
+        val storedTimeout = PropertiesComponent.getInstance().getValue(PREFERENCES_KEY_TIMEOUT)
+        if (storedTimeout != null) {
+            try {
+                timeoutSeconds = storedTimeout.toLong()
+                log.info("Loaded stored timeout preference: ${timeoutSeconds}s")
+            } catch (e: NumberFormatException) {
+                log.warn("Invalid stored timeout value: $storedTimeout, using default")
+                timeoutSeconds = DEFAULT_TIMEOUT_SECONDS
+            }
+        }
+    }
+
+    /** Persists the given timeout and updates [timeoutSeconds]. */
+    fun setPersistentTimeout(seconds: Long) {
+        timeoutSeconds = seconds
+        PropertiesComponent.getInstance().setValue(PREFERENCES_KEY_TIMEOUT, seconds.toString())
+        log.info("Persisted new timeout preference: ${seconds}s")
+    }
+
+    /** Resets [timeoutSeconds] back to the default (120 s) without affecting stored preference. */
     fun resetTimeout() {
         timeoutSeconds = DEFAULT_TIMEOUT_SECONDS
     }

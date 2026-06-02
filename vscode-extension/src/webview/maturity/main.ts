@@ -140,9 +140,9 @@ function renderRadarChart(categories: CategoryScore[], overallStage: number): st
 function stageColor(stage: number): string {
 	switch (stage) {
 		case 1: return '#93c5fd';
-		case 2: return '#6ee7b7';
+		case 2: return '#a78bfa';
 		case 3: return '#3b82f6';
-		case 4: return '#10b981';
+		case 4: return '#22d3ee';
 		default: return '#666';
 	}
 }

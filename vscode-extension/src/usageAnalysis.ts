@@ -908,6 +908,12 @@ export function mergeUsageAnalysis(period: UsageAnalysisPeriod, analysis: Sessio
 	for (const [tool, count] of Object.entries(analysis.toolCalls.byTool)) {
 		period.toolCalls.byTool[tool] = (period.toolCalls.byTool[tool] || 0) + count;
 	}
+	if (analysis.toolCalls.outputTokensByTool) {
+		if (!period.toolCalls.outputTokensByTool) { period.toolCalls.outputTokensByTool = {}; }
+		for (const [tool, tokens] of Object.entries(analysis.toolCalls.outputTokensByTool)) {
+			period.toolCalls.outputTokensByTool[tool] = (period.toolCalls.outputTokensByTool[tool] || 0) + tokens;
+		}
+	}
 	period.modeUsage.ask += analysis.modeUsage.ask;
 	period.modeUsage.edit += analysis.modeUsage.edit;
 	period.modeUsage.agent += analysis.modeUsage.agent;
@@ -1714,11 +1720,11 @@ function _asuEnsureEditScope(analysis: SessionUsageAnalysis): void {
 	}
 }
 
-/** Handle tool.execution_start for CLI LOC tracking — stores pending tool call args. */
+/** Handle tool.execution_start — stores pending tool call info for all tools (LOC + output token tracking). */
 function _asuHandleToolStart(event: any, cliState: AsuCliState): void {
 	const { toolCallId, toolName, arguments: args } = event.data ?? {};
-	if (toolCallId && (toolName === 'edit' || toolName === 'create') && args) {
-		cliState.pendingToolCalls.set(toolCallId, { toolName, args });
+	if (toolCallId && toolName) {
+		cliState.pendingToolCalls.set(toolCallId, { toolName, args: args ?? {} });
 	}
 }
 
@@ -1740,12 +1746,33 @@ function _asuApplyToolLoc(pending: { toolName: string; args: Record<string, stri
 	analysis.editScope!.languageUsage[ext].linesRemoved += linesRemoved;
 }
 
-/** Handle tool.execution_complete for CLI LOC tracking — applies LOC on success. */
+/** Extract plain text from a tool result content value (string or content-block array). */
+function _asuExtractToolResultText(content: unknown): string {
+	if (typeof content === 'string') { return content; }
+	if (Array.isArray(content)) {
+		return content
+			.filter((b: any) => b?.type === 'text' && typeof b.text === 'string')
+			.map((b: any) => b.text as string)
+			.join('');
+	}
+	return '';
+}
+
+/** Handle tool.execution_complete — applies LOC tracking for edit/create and counts output tokens for all non-MCP tools. */
 function _asuHandleToolComplete(event: any, cliState: AsuCliState, analysis: SessionUsageAnalysis): void {
-	const { toolCallId, success } = event.data ?? {};
+	const { toolCallId, success, result } = event.data ?? {};
 	const pending = toolCallId ? cliState.pendingToolCalls.get(toolCallId) : undefined;
 	if (toolCallId) { cliState.pendingToolCalls.delete(toolCallId); }
-	if (pending && success) { _asuApplyToolLoc(pending, cliState, analysis); }
+	if (!pending) { return; }
+	if (success && (pending.toolName === 'edit' || pending.toolName === 'create')) {
+		_asuApplyToolLoc(pending, cliState, analysis);
+	}
+	if (!result?.content || isMcpTool(pending.toolName)) { return; }
+	const resultText = _asuExtractToolResultText(result.content);
+	if (!resultText) { return; }
+	const tokens = estimateTokensFromText(resultText);
+	if (!analysis.toolCalls.outputTokensByTool) { analysis.toolCalls.outputTokensByTool = {}; }
+	analysis.toolCalls.outputTokensByTool[pending.toolName] = (analysis.toolCalls.outputTokensByTool[pending.toolName] || 0) + tokens;
 }
 
 /** Handle tool.execution_start / tool.execution_complete for CLI LOC tracking. */

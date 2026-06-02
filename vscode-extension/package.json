@@ -372,6 +372,39 @@
           "default": [],
           "description": "List of tool names to suppress from the 'Unknown Tools Found' section in the Usage Analysis dashboard. Useful for tools you are testing that don't yet have friendly display names."
         },
+        "aiEngineeringFluency.toolFamilies": {
+          "type": "array",
+          "default": [],
+          "description": "Override or extend tool family groupings used in the Tool Output Token Analysis tab. Each entry with an 'id' matching a built-in family replaces that family entirely. Entries with new 'id' values are appended. Leave empty to use the built-in defaults. Example: { \"id\": \"reading\", \"name\": \"File Reading\", \"builtIn\": [\"read\"], \"alternatives\": [\"lean-ctx\", \"my-custom-reader\"] }",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "builtIn", "alternatives"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Stable identifier used for override matching (e.g. 'reading'). Must be unique."
+              },
+              "name": {
+                "type": "string",
+                "description": "Display name shown in the Tool Analysis tab."
+              },
+              "builtIn": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Built-in / baseline tool names that define the reference performance. Tool names must match exactly as they appear in session logs."
+              },
+              "alternatives": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Alternative or efficient-replacement tool names to compare against the built-ins."
+              },
+              "description": {
+                "type": "string",
+                "description": "Optional short description of this tool family."
+              }
+            }
+          }
+        },
         "aiEngineeringFluency.insights.enabled": {
           "type": "boolean",
           "default": true,

@@ -414,7 +414,7 @@ jobs:
               sys.exit(1)
           PYEOF
 
-      - name: Update toolNames.json with new entries
+            - name: Update toolNames.json with new entries
         if: steps.extract.outputs.has_missing == 'true'
         run: |
           python3 - << 'PYEOF'
@@ -430,10 +430,8 @@ jobs:
               sys.exit(0)
 
           with open(TOOLNAMES_FILE) as f:
-              content = f.read()
-          known_tools = json.loads(content)
+              known_tools = json.load(f)
 
-          # Deduplicate: skip anything already present (case-insensitive)
           to_add = {}
           for tool_id, friendly_name in new_entries.items():
               if tool_id in known_tools:
@@ -448,56 +446,26 @@ jobs:
               print("All entries already present after dedup. Nothing to write.", file=sys.stderr)
               sys.exit(0)
 
-          lines = content.splitlines(keepends=True)
+          ordered_items = list(known_tools.items()) + list(to_add.items())
 
-          MCP_PREFIXES = [
-              "mcp_io_github_git_", "mcp_github_github_", "mcp_github-code",
-              "mcp_github_", "github-mcp-server-", "github-", "mcp_microsoft_pla_",
-              "mcp_oraios_serena_", "mcp_gitkraken_", "mcp_io_github_ups_",
-              "mcp_microsoftdocs_", "mcp_",
-          ]
-
-          def get_prefix(tool_id):
-              for p in MCP_PREFIXES:
-                  if tool_id.startswith(p):
-                      return p
-              return ""
-
-          def find_last_line_with_prefix(lines, prefix):
-              last_idx = -1
-              for i, line in enumerate(lines):
-                  m = re.search(r'"([^"]+)":', line)
-                  if m and m.group(1).startswith(prefix):
-                      last_idx = i
-              return last_idx
-
-          def find_closing_brace(lines):
-              for i in range(len(lines) - 1, -1, -1):
-                  if lines[i].strip() == "}":
-                      return i
-              return len(lines) - 1
-
-          for tool_id, friendly_name in to_add.items():
-              entry_line = f"  ,{json.dumps(tool_id)}: {json.dumps(friendly_name)}\n"
-              prefix = get_prefix(tool_id)
-              insert_after = find_last_line_with_prefix(lines, prefix) if prefix else -1
-              if insert_after == -1:
-                  insert_after = find_closing_brace(lines) - 1
-              lines.insert(insert_after + 1, entry_line)
-              print(f"Inserted {tool_id!r} -> {friendly_name!r} after line {insert_after + 1}", file=sys.stderr)
+          lines = ["{\n"]
+          for i, (tool_id, friendly_name) in enumerate(ordered_items):
+              prefix = "  " if i == 0 else "  ,"
+              lines.append(f'{prefix}{json.dumps(tool_id)}: {json.dumps(friendly_name)}\n')
+          lines.append("}\n")
 
           new_content = "".join(lines)
           try:
               json.loads(new_content)
           except json.JSONDecodeError as e:
-              print(f"❌ JSON validation failed after insertion: {e}", file=sys.stderr)
+              print(f"❌ JSON validation failed after render: {e}", file=sys.stderr)
               sys.exit(1)
 
           with open(TOOLNAMES_FILE, "w") as f:
               f.write(new_content)
           print(f"✅ Wrote {len(to_add)} new entries to toolNames.json", file=sys.stderr)
           PYEOF
-
+          
       - name: Create Pull Request
         if: steps.extract.outputs.has_missing == 'true'
         id: create-pr
