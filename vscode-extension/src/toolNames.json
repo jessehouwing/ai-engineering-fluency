@@ -758,15 +758,37 @@
   "mcp_zettelkasten_zk_get_note": "Zettelkasten: Get Note",
   "mcp_zettelkasten_zk_remove_link": "Zettelkasten: Remove Link",
   "mcp_zettelkasten_zk_search_notes": "Zettelkasten: Search Notes",
-  "mcp_zettelkasten_zk_update_note": "Zettelkasten: Update Note"
-  ,"copilot_listCodeUsages": "Copilot: List Code Usages"
-  ,"create_new_file": "Windsurf: File Create"
-  ,"edit_existing_file": "Windsurf: File Edit"
-  ,"github.copilot.editingSession": "GitHub MCP (Local): Assign Copilot to Issue"
-  ,"mssql_connect": "SQL Server Connection"
-  ,"mssql_disconnect": "SQL Server Disconnection"
-  ,"mssql_list_tables": "SQL Server Tables List"
-  ,"mssql_run_query": "SQL Server Query Execution"
-  ,"run_terminal_command": "Terminal Command Run"
-  ,"single_find_and_replace": "Find and Replace"
+  "mcp_zettelkasten_zk_update_note": "Zettelkasten: Update Note",
+  "copilot_listCodeUsages": "Copilot: List Code Usages",
+  "create_new_file": "Windsurf: File Create",
+  "edit_existing_file": "Windsurf: File Edit",
+  "github.copilot.editingSession": "GitHub MCP (Local): Assign Copilot to Issue",
+  "mssql_connect": "SQL Server Connection",
+  "mssql_disconnect": "SQL Server Disconnection",
+  "mssql_list_tables": "SQL Server Tables List",
+  "mssql_run_query": "SQL Server Query Execution",
+  "run_terminal_command": "Terminal Command Run",
+  "single_find_and_replace": "Find and Replace",
+  "mcp_io_github_git_add_comment_to_pending_review": "GitHub MCP (Local): Add Comment To Pending Review",
+  "mcp_io_github_git_add_reply_to_pull_request_comment": "GitHub MCP (Local): Add Reply To Pull Request Comment",
+  "mcp_io_github_git_pull_request_review_write": "GitHub MCP (Local): Pull Request Review Write",
+  "mcp_aikido_aikido_full_scan": "Aikido MCP: Full Scan",
+  "mcp_aikido_aikido_issues_list": "Aikido MCP: Issues List",
+  "mcp_com_atlassian_addCommentToJiraIssue": "Atlassian MCP: Add Comment To Jira Issue",
+  "mcp_com_atlassian_atlassianUserInfo": "Atlassian MCP: User Info",
+  "mcp_com_atlassian_createConfluencePage": "Atlassian MCP: Create Confluence Page",
+  "mcp_com_atlassian_getAccessibleAtlassianResources": "Atlassian MCP: Get Accessible Atlassian Resources",
+  "mcp_com_atlassian_getConfluencePage": "Atlassian MCP: Get Confluence Page",
+  "mcp_com_atlassian_getConfluencePageFooterComments": "Atlassian MCP: Get Confluence Page Footer Comments",
+  "mcp_com_atlassian_getConfluenceSpaces": "Atlassian MCP: Get Confluence Spaces",
+  "mcp_com_atlassian_getJiraIssue": "Atlassian MCP: Get Jira Issue",
+  "mcp_com_atlassian_search": "Atlassian MCP: Search",
+  "mcp_com_atlassian_searchJiraIssuesUsingJql": "Atlassian MCP: Search Jira Issues Using JQL",
+  "mcp_com_atlassian_updateConfluencePage": "Atlassian MCP: Update Confluence Page",
+  "mcp_sonarqube_analyze_code_snippet": "SonarQube MCP: Analyze Code Snippet",
+  "mcp_sonarqube_get_project_quality_gate_status": "SonarQube MCP: Get Project Quality Gate Status",
+  "mcp_sonarqube_search_my_sonarqube_projects": "SonarQube MCP: Search My SonarQube Projects",
+  "mcp_sonarqube_search_security_hotspots": "SonarQube MCP: Search Security Hotspots",
+  "mcp_sonarqube_search_sonar_issues_in_projects": "SonarQube MCP: Search Sonar Issues In Projects",
+  "sonarqube_analyze_file": "SonarQube: Analyze File"
 }
