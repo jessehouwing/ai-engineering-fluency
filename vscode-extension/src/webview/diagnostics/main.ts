@@ -156,6 +156,10 @@ let currentEditorFilter: string | null = null; // null = show all
 let currentContextRefFilter: keyof ContextReferenceUsage | null = null; // null = show all
 let hideEmptySessions = true; // hide sessions with 0 interactions by default
 
+// Tool analysis table sort state
+let toolSortColumn: "tool" | "calls" | "total" | "avg" = "avg";
+let toolSortDir: "asc" | "desc" = "desc";
+
 // Render state (promoted to module level so all setup functions can be top-level)
 let storedDetailedFiles: SessionFileDetails[] = [];
 let isLoading = true;
@@ -1224,6 +1228,42 @@ function reRenderTable(): void {
   }
 }
 
+function reRenderToolAnalysisTable(): void {
+  const table = document.getElementById("tool-analysis-table");
+  if (!table) { return; }
+  const encoded = table.getAttribute("data-rows");
+  if (!encoded) { return; }
+  const rows: ToolAnalysisRow[] = JSON.parse(decodeURIComponent(encoded));
+  const tbody = table.querySelector("tbody");
+  if (tbody) { tbody.innerHTML = renderToolAnalysisRows(rows); }
+  const thead = table.querySelector("thead");
+  if (thead) {
+    thead.innerHTML = `<tr>
+<th class="tool-sortable" data-sort="tool">Tool${getToolSortIndicator("tool")}</th>
+<th class="tool-sortable" data-sort="calls">Calls${getToolSortIndicator("calls")}</th>
+<th class="tool-sortable" data-sort="total">Total Output Tokens${getToolSortIndicator("total")}</th>
+<th class="tool-sortable" data-sort="avg">Avg Tokens / Call${getToolSortIndicator("avg")}</th>
+</tr>`;
+  }
+  setupToolAnalysisSortHandlers();
+}
+
+function setupToolAnalysisSortHandlers(): void {
+  document.querySelectorAll<HTMLElement>(".tool-sortable").forEach(header => {
+    header.addEventListener("click", () => {
+      const col = header.getAttribute("data-sort") as typeof toolSortColumn | null;
+      if (!col) { return; }
+      if (toolSortColumn === col) {
+        toolSortDir = toolSortDir === "desc" ? "asc" : "desc";
+      } else {
+        toolSortColumn = col;
+        toolSortDir = col === "tool" ? "asc" : "desc";
+      }
+      reRenderToolAnalysisTable();
+    });
+  });
+}
+
 function setupFileLinks(): void {
   document.querySelectorAll(".session-file-link").forEach((link) => {
     link.addEventListener("click", (e) => {
@@ -1572,6 +1612,7 @@ function handleDiagnosticDataLoaded(message: DiagMessage): void {
       if (newTab) {
         if (wasActive) { newTab.classList.add("active"); }
         toolAnalysisTab.replaceWith(newTab);
+        setupToolAnalysisSortHandlers();
       }
     }
   }
@@ -1860,6 +1901,32 @@ for quick scanning, or as full numbers (e.g. <strong>1,500</strong>, <strong>1,2
 </div>`;
 }
 
+type ToolAnalysisRow = { tool: string; totalTokens: number; calls: number };
+
+function getToolSortIndicator(col: typeof toolSortColumn): string {
+  if (toolSortColumn !== col) { return ' <span class="sort-hint">↕</span>'; }
+  return toolSortDir === "desc" ? " ▼" : " ▲";
+}
+
+function renderToolAnalysisRows(rows: ToolAnalysisRow[]): string {
+  const sorted = [...rows].sort((a, b) => {
+    let aVal: number | string, bVal: number | string;
+    switch (toolSortColumn) {
+      case "tool": aVal = a.tool.toLowerCase(); bVal = b.tool.toLowerCase(); break;
+      case "calls": aVal = a.calls; bVal = b.calls; break;
+      case "total": aVal = a.totalTokens; bVal = b.totalTokens; break;
+      case "avg": default: aVal = a.calls > 0 ? a.totalTokens / a.calls : 0; bVal = b.calls > 0 ? b.totalTokens / b.calls : 0; break;
+    }
+    if (aVal < bVal) { return toolSortDir === "desc" ? 1 : -1; }
+    if (aVal > bVal) { return toolSortDir === "desc" ? -1 : 1; }
+    return 0;
+  });
+  return sorted.map(r => {
+    const avg = r.calls > 0 ? Math.round(r.totalTokens / r.calls) : 0;
+    return `<tr><td>${escapeHtml(r.tool)}</td><td>${escapeHtml(String(r.calls))}</td><td>${formatTokenCount(r.totalTokens)}</td><td>${formatTokenCount(avg)}</td></tr>`;
+  }).join('');
+}
+
 function renderToolAnalysisTab(toolCallStats: DiagnosticsData['toolCallStats']): string {
   if (!toolCallStats || !toolCallStats.outputTokensByTool || Object.keys(toolCallStats.outputTokensByTool).length === 0) {
     return `<div id="tab-tool-analysis" class="tab-content">
@@ -1871,22 +1938,23 @@ function renderToolAnalysisTab(toolCallStats: DiagnosticsData['toolCallStats']):
   }
   const outputTokensByTool = toolCallStats.outputTokensByTool;
   const byTool = toolCallStats.byTool;
-  const rows = Object.entries(outputTokensByTool)
+  const rows: ToolAnalysisRow[] = Object.entries(outputTokensByTool)
     .map(([tool, totalTokens]) => ({ tool, totalTokens, calls: byTool[tool] || 0 }))
-    .filter(r => r.calls > 0)
-    .sort((a, b) => (b.totalTokens / b.calls) - (a.totalTokens / a.calls));
-  const tableRows = rows.map(r => {
-    const avg = Math.round(r.totalTokens / r.calls);
-    return `<tr><td>${escapeHtml(r.tool)}</td><td>${escapeHtml(String(r.calls))}</td><td>${formatTokenCount(r.totalTokens)}</td><td>${formatTokenCount(avg)}</td></tr>`;
-  }).join('');
+    .filter(r => r.calls > 0);
+  const encodedRows = encodeURIComponent(JSON.stringify(rows));
   return `<div id="tab-tool-analysis" class="tab-content">
 <div class="info-box">
 <div class="info-box-title">🔧 Tool Output Token Analysis</div>
-<div>Tokens produced by each tool's output over the last 30 days, sorted by average tokens per call (descending). Comparing tools with high vs. low output token counts can help identify efficiency opportunities.</div>
+<div>Tokens produced by each tool's output over the last 30 days. Click column headers to sort.</div>
 </div>
-<table class="session-table">
-<thead><tr><th>Tool</th><th>Calls</th><th>Total Output Tokens</th><th>Avg Tokens / Call</th></tr></thead>
-<tbody>${tableRows}</tbody>
+<table class="session-table" id="tool-analysis-table" data-rows="${encodedRows}">
+<thead><tr>
+<th class="tool-sortable" data-sort="tool">Tool${getToolSortIndicator("tool")}</th>
+<th class="tool-sortable" data-sort="calls">Calls${getToolSortIndicator("calls")}</th>
+<th class="tool-sortable" data-sort="total">Total Output Tokens${getToolSortIndicator("total")}</th>
+<th class="tool-sortable" data-sort="avg">Avg Tokens / Call${getToolSortIndicator("avg")}</th>
+</tr></thead>
+<tbody>${renderToolAnalysisRows(rows)}</tbody>
 </table>
 </div>`;
 }
@@ -2022,6 +2090,7 @@ function renderLayout(data: DiagnosticsData): void {
   setupFolderAnalyzerHandlers();
   setupButtonHandlers();
   setupDisplaySettingHandlers();
+  setupToolAnalysisSortHandlers();
 
   const savedState = diagState.restore();
   if (savedState?.activeTab && !activateTab(savedState.activeTab)) {

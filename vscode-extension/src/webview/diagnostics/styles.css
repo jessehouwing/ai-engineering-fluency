@@ -346,14 +346,20 @@ body {
 	top: 0;
 }
 
-.session-table th.sortable {
+.session-table th.sortable,
+.session-table th.tool-sortable {
 	cursor: pointer;
 	user-select: none;
 }
 
-.session-table th.sortable:hover {
+.session-table th.sortable:hover,
+.session-table th.tool-sortable:hover {
 	background: var(--list-hover-bg);
 	color: var(--link-color);
+}
+
+.sort-hint {
+	opacity: 0.4;
 }
 
 .session-table tr:hover {
