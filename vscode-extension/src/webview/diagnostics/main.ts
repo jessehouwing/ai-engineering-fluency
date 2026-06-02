@@ -1564,11 +1564,15 @@ function handleDiagnosticDataLoaded(message: DiagMessage): void {
   if (message.toolCallStats !== undefined) {
     const toolAnalysisTab = document.getElementById("tab-tool-analysis");
     if (toolAnalysisTab) {
+      const wasActive = toolAnalysisTab.classList.contains("active");
       const newContent = renderToolAnalysisTab(message.toolCallStats as DiagnosticsData['toolCallStats']);
       const temp = document.createElement('div');
       temp.innerHTML = newContent;
-      const newTab = temp.firstElementChild;
-      if (newTab) { toolAnalysisTab.replaceWith(newTab); }
+      const newTab = temp.firstElementChild as HTMLElement | null;
+      if (newTab) {
+        if (wasActive) { newTab.classList.add("active"); }
+        toolAnalysisTab.replaceWith(newTab);
+      }
     }
   }
 }
