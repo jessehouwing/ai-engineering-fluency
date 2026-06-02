@@ -325,16 +325,23 @@ export async function processSessionFile(filePath: string, verbose = false): Pro
 			tokens = result.actualTokens > 0 ? result.actualTokens : result.tokens;
 			thinkingTokens = result.thinkingTokens;
 			actualTokens = result.actualTokens;
-			// Use per-model breakdown from session.shutdown events (more accurate than request-level estimates)
-			fileModelUsage = result.modelUsage;
 
-			// JetBrains partition files lack session.shutdown events, so the generic
-			// estimator returns empty modelUsage. Fall back to the JetBrains-specific
-			// parser which extracts model names from assistant.turn_start events so
-			// that cost calculation can produce non-zero values. When no model hint
-			// is detectable (ask-mode without tool calls), attribute the tokens to
-			// an 'unknown' bucket — calculateEstimatedCost falls back to gpt-4o-mini
-			// pricing for unrecognised model names.
+			// Always derive model attribution via getModelUsageFromSession — the single shared
+			// entry point that handles all JSONL formats (event-format CLI sessions, delta-format
+			// VS Code Chat sessions). This mirrors VS Code's getSessionFileDataCached, which calls
+			// getModelUsageFromSession in parallel with estimateTokensFromSession rather than
+			// relying on estimateTokensFromJsonlSession.modelUsage (which is empty for delta-format).
+			fileModelUsage = await getModelUsageFromSession(
+				{ warn, tokenEstimators, modelPricing, ecosystems: getEcosystems() },
+				filePath,
+				content
+			);
+
+			// JetBrains partition files use a proprietary format not handled by getModelUsageFromSession.
+			// Fall back to the JetBrains-specific parser which reads model names from
+			// assistant.turn_start events. When no model hint is detectable (ask-mode without
+			// tool calls), attribute to 'unknown' — calculateEstimatedCost falls back to
+			// gpt-4o-mini pricing for unrecognised model names.
 			if (Object.keys(fileModelUsage).length === 0 && isJetBrainsSessionPath(filePath)) {
 				const jbResult = parseJetBrainsPartition(content);
 				if (Object.keys(jbResult.modelUsage).length > 0) {
@@ -342,20 +349,6 @@ export async function processSessionFile(filePath: string, verbose = false): Pro
 				} else if (jbResult.tokens > 0) {
 					const modelKey = jbResult.modelHint && jbResult.modelHint !== 'unknown' ? jbResult.modelHint : 'unknown';
 					fileModelUsage = { [modelKey]: { inputTokens: jbResult.tokens, outputTokens: 0 } };
-				}
-			}
-
-			// Delta-format JSONL sessions (VS Code chat) return empty modelUsage from DeltaTokenStrategy.
-			// Use getModelUsageFromSession to reconstruct per-model usage from request data,
-			// matching VS Code's _gmusProcessDeltaRequests path so cost is calculated consistently.
-			if (Object.keys(fileModelUsage).length === 0 && !isJetBrainsSessionPath(filePath)) {
-				const supplemented = await getModelUsageFromSession(
-					{ warn, tokenEstimators, modelPricing, ecosystems: getEcosystems() },
-					filePath,
-					content
-				);
-				if (Object.keys(supplemented).length > 0) {
-					fileModelUsage = supplemented;
 				}
 			}
 
