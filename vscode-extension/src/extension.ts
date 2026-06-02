@@ -7325,6 +7325,12 @@ ${this.getLoadingHtmlScript()}
         this.log("✅ Cache populated, proceeding with diagnostics load");
       }
 
+      if (!this.lastUsageAnalysisStats) {
+        this.log("⚡ No usage analysis stats cached - computing for tool analysis tab...");
+        await this.calculateUsageAnalysisStats(false);
+        this.log("✅ Usage analysis stats computed");
+      }
+
       const report = await this.generateDiagnosticReport();
       this.lastDiagnosticReport = report;
 
