@@ -443,6 +443,8 @@ class CopilotTokenTracker implements vscode.Disposable {
 	public githubSession: vscode.AuthenticationSession | undefined;
 	// Promise that resolves when the startup session restore completes
 	private _sessionRestorePromise: Promise<void> | undefined;
+	// Promise that resolves when the initial cache load from disk completes
+	private _cacheLoadPromise: Promise<void> | undefined;
 	/** True when the user explicitly signed out from our extension this VS Code session. Gated by globalState so it survives reloads. */
 	private _githubSignedOutByUser: boolean = false;
 	/** Resolved Copilot plan details fetched from copilot_internal/user after sign-in. */
@@ -893,14 +895,12 @@ class CopilotTokenTracker implements vscode.Disposable {
 			this.outputChannel.show(true);
 			this.log('Clearing session file cache...');
 
-				const cacheId = this.cacheManager.getCacheIdentifier();
-			const cacheKey = `sessionFileCache_${cacheId}`;
-			const versionKey = `sessionFileCacheVersion_${cacheId}`;
-			
 			const cacheSize = this.cacheManager.cache.size;
 			this.cacheManager.cache.clear();
-			await this.context.globalState.update(cacheKey, undefined);
-			await this.context.globalState.update(versionKey, undefined);
+
+			// Delete the on-disk snapshot so it isn't reloaded after restart.
+			await this.cacheManager.deleteSharedSnapshot();
+
 			// Reset diagnostics loaded flag so the diagnostics view will reload files
 			this.diagnosticsHasLoadedFiles = false;
 			this.diagnosticsCachedFiles = [];
@@ -929,7 +929,9 @@ class CopilotTokenTracker implements vscode.Disposable {
 		this.context = context;
 		this.initializeAdapters(extensionUri, context);
 		this.initializeOutputChannel(context);
-		this.cacheManager.loadCacheFromStorage();
+		this._cacheLoadPromise = this.cacheManager.loadCacheFromStorage().finally(() => {
+			this._cacheLoadPromise = undefined;
+		});
 		this._sessionRestorePromise = this.restoreGitHubSession();
 		this.setupGitHubAuthListener(context);
 		this.sessionDiscovery.checkCopilotExtension();
@@ -1747,6 +1749,11 @@ class CopilotTokenTracker implements vscode.Disposable {
 	}
 
 	private async _runUpdateTokenStats(silent: boolean): Promise<DetailedStats | undefined> {
+		// Ensure the initial cache load from disk has completed before parsing.
+		if (this._cacheLoadPromise) {
+			try { await this._cacheLoadPromise; } catch { /* already logged in loadCacheFromStorage */ }
+		}
+
 		// Warm the in-memory cache from any newer snapshot another window published,
 		// so most files become cache hits and parsing is skipped.
 		try { await this.cacheManager.loadSharedSnapshotIfChanged(); }
@@ -7717,15 +7724,12 @@ ${this.getLoadingHtmlScript()}
 
   private resolvePersistedCacheSummary(): string {
     try {
-      const persisted = this.context.globalState.get<Record<string, SessionFileCache>>("sessionFileCache");
-      if (persisted && typeof persisted === "object") {
-        const count = Object.keys(persisted).length;
-        return `VS Code Global State - sessionFileCache (${count} entr${count === 1 ? "y" : "ies"})`;
-      }
+      const snapshotPath = this.cacheManager.getSharedSnapshotPath();
+      const entries = this.cacheManager.cache.size;
+      return `Disk snapshot: ${snapshotPath} (${entries} entr${entries === 1 ? 'y' : 'ies'} in-memory)`;
     } catch {
-      return "Error reading VS Code Global State";
+      return "Error reading cache snapshot path";
     }
-    return "Not found in VS Code Global State";
   }
 
   private findGlobalStateStoragePath(): string | null {

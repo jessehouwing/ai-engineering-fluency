@@ -149,3 +149,138 @@ test('refresh lock and cache lock are independent files', async () => {
 	await m.releaseRefreshLock();
 	await m.releaseCacheLock();
 });
+
+// ---------------------------------------------------------------------------
+// loadCacheFromStorage (disk-based)
+// ---------------------------------------------------------------------------
+
+test('loadCacheFromStorage: loads entries from existing snapshot', async () => {
+	const dir = tmpDir();
+	const writer = makeManager(dir);
+	writer.setCachedSessionData('/a.json', entry(1000), 10);
+	writer.setCachedSessionData('/b.json', entry(2000), 20);
+	await writer.writeSharedSnapshot();
+
+	const reader = makeManager(dir);
+	await reader.loadCacheFromStorage();
+	assert.equal(reader.cache.size, 2, 'should load both entries');
+	assert.equal(reader.cache.get('/a.json')?.mtime, 1000);
+	assert.equal(reader.cache.get('/b.json')?.mtime, 2000);
+});
+
+test('loadCacheFromStorage: starts with empty cache when no snapshot exists', async () => {
+	const dir = tmpDir();
+	const m = makeManager(dir);
+	await m.loadCacheFromStorage();
+	assert.equal(m.cache.size, 0, 'cache should be empty when no snapshot exists');
+});
+
+test('loadCacheFromStorage: clears cache and resets lastCleanSyncVersion on version mismatch', async () => {
+	const dir = tmpDir();
+	const writer = makeManager(dir, 1);
+	writer.setCachedSessionData('/a.json', entry(1000), 10);
+	await writer.writeSharedSnapshot();
+
+	// Reader uses a different cache version
+	const logs: string[] = [];
+	const context: any = {
+		extensionMode: 1,
+		globalStorageUri: { fsPath: dir },
+		globalState: createMockMemento(),
+	};
+	// Pre-set a lastCleanSyncVersion to verify it gets cleared
+	context.globalState.update('backend.lastCleanSyncVersion', 5);
+	const reader = new CacheManager(context, { log: (m: string) => logs.push(m), warn: () => {}, error: () => {} }, 2);
+	await reader.loadCacheFromStorage();
+	assert.equal(reader.cache.size, 0, 'cache should be empty on version mismatch');
+	assert.ok(logs.some(l => l.includes('version mismatch')), 'should log version mismatch');
+	assert.equal(context.globalState.get('backend.lastCleanSyncVersion'), undefined,
+		'lastCleanSyncVersion should be cleared on version mismatch');
+});
+
+test('loadCacheFromStorage: removes large globalState cache entries (migration)', async () => {
+	const dir = tmpDir();
+	const context: any = {
+		extensionMode: 1,
+		globalStorageUri: { fsPath: dir },
+		globalState: createMockMemento(),
+	};
+	// Simulate old large entries in globalState
+	await context.globalState.update('sessionFileCache_prod', { '/a.json': entry(1000) });
+	await context.globalState.update('sessionFileCacheVersion_prod', 1);
+	await context.globalState.update('sessionFileCache', { '/b.json': entry(2000) });
+
+	const m = new CacheManager(context, { log: () => {}, warn: () => {}, error: () => {} }, 1);
+	await m.loadCacheFromStorage();
+
+	assert.equal(context.globalState.get('sessionFileCache_prod'), undefined,
+		'current scoped key should be removed from globalState');
+	assert.equal(context.globalState.get('sessionFileCacheVersion_prod'), undefined,
+		'version key should be removed from globalState');
+	assert.equal(context.globalState.get('sessionFileCache'), undefined,
+		'legacy unscoped key should be removed from globalState');
+});
+
+// ---------------------------------------------------------------------------
+// deleteSharedSnapshot
+// ---------------------------------------------------------------------------
+
+test('deleteSharedSnapshot: removes the snapshot file', async () => {
+	const dir = tmpDir();
+	const m = makeManager(dir);
+	m.setCachedSessionData('/a.json', entry(1000), 10);
+	await m.writeSharedSnapshot();
+	assert.ok(fs.existsSync(m.getSharedSnapshotPath()), 'snapshot should exist before delete');
+
+	await m.deleteSharedSnapshot();
+	assert.equal(fs.existsSync(m.getSharedSnapshotPath()), false, 'snapshot should be removed');
+});
+
+test('deleteSharedSnapshot: is a no-op when snapshot does not exist', async () => {
+	const dir = tmpDir();
+	const m = makeManager(dir);
+	// Should not throw
+	await assert.doesNotReject(() => m.deleteSharedSnapshot());
+});
+
+test('deleteSharedSnapshot: prevents reloading cleared cache after restart', async () => {
+	const dir = tmpDir();
+	const m = makeManager(dir);
+	m.setCachedSessionData('/a.json', entry(1000), 10);
+	await m.writeSharedSnapshot();
+	await m.deleteSharedSnapshot();
+
+	const reader = makeManager(dir);
+	await reader.loadCacheFromStorage();
+	assert.equal(reader.cache.size, 0, 'cleared cache should not be reloaded from disk');
+});
+
+// ---------------------------------------------------------------------------
+// migrateOldCacheKeys: now removes all cache keys (including current scoped)
+// ---------------------------------------------------------------------------
+
+test('migrateOldCacheKeys: removes all sessionFileCache* keys from globalState', () => {
+	const dir = tmpDir();
+	const context: any = {
+		extensionMode: 1,
+		globalStorageUri: { fsPath: dir },
+		globalState: createMockMemento(),
+	};
+	context.globalState.update('sessionFileCache_prod', { data: 'big' });
+	context.globalState.update('sessionFileCacheVersion_prod', 1);
+	context.globalState.update('sessionFileCache_dev-abc123', { data: 'big' });
+	context.globalState.update('sessionFileCacheTimestamp_prod', 12345);
+	context.globalState.update('sessionFileCache', { data: 'legacy' });
+	context.globalState.update('github.authenticated', true); // should NOT be removed
+
+	const m = new CacheManager(context, { log: () => {}, warn: () => {}, error: () => {} }, 1);
+	m.migrateOldCacheKeys('prod');
+
+	assert.equal(context.globalState.get('sessionFileCache_prod'), undefined);
+	assert.equal(context.globalState.get('sessionFileCacheVersion_prod'), undefined);
+	assert.equal(context.globalState.get('sessionFileCache_dev-abc123'), undefined);
+	assert.equal(context.globalState.get('sessionFileCacheTimestamp_prod'), undefined);
+	assert.equal(context.globalState.get('sessionFileCache'), undefined);
+	// Unrelated keys must be preserved
+	assert.equal(context.globalState.get('github.authenticated'), true);
+});

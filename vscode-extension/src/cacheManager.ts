@@ -251,87 +251,107 @@ export class CacheManager {
 	}
 
 	// Persistent cache storage methods
-	loadCacheFromStorage(): void {
+
+	/**
+	 * Load the session file cache from the shared on-disk snapshot.
+	 * The cache is now stored exclusively on disk (globalStorageUri) to avoid
+	 * hitting VS Code's globalState size limit (~2-3 MB warning threshold).
+	 * Also removes any legacy cache data from globalState as a one-time migration.
+	 */
+	async loadCacheFromStorage(): Promise<void> {
 		try {
 			const cacheId = this.getCacheIdentifier();
-			const versionKey = `sessionFileCacheVersion_${cacheId}`;
-			const cacheKey = `sessionFileCache_${cacheId}`;
-			
-			// One-time migration: clean up old per-session cache keys from previous versions
-			this.migrateOldCacheKeys(cacheId);
-			
-			// Check cache version first
-			const storedVersion = this.context.globalState.get<number>(versionKey);
-			if (storedVersion !== this.cacheVersion) {
-				this.deps.log(`Cache version mismatch (stored: ${storedVersion}, current: ${this.cacheVersion}) for ${cacheId}. Clearing cache.`);
-				this.sessionFileCache = new Map();
-				// Reset the clean-sync flag so the next sync deletes stale Azure entities
-				try { this.context.globalState.update('backend.lastCleanSyncVersion', undefined); } catch { /* best-effort */ }
-				return;
-			}
 
-			const cacheData = this.context.globalState.get<Record<string, SessionFileCache>>(cacheKey);
-			if (cacheData) {
-				this.sessionFileCache = new Map(Object.entries(cacheData));
-				this.deps.log(`Loaded ${this.sessionFileCache.size} cached session files from storage (${cacheId})`);
-			} else {
-				this.deps.log(`No cached session files found in storage for ${cacheId}`);
+			// One-time migration: remove all cache entries from globalState now that
+			// the disk snapshot is the sole source of truth.
+			this.migrateOldCacheKeys(cacheId);
+
+			// Load from the shared on-disk snapshot (globalStorageUri).
+			const snapshotPath = this.getSharedSnapshotPath();
+			try {
+				const content = await fs.promises.readFile(snapshotPath, 'utf-8');
+				const envelope = JSON.parse(content);
+
+				if (!envelope || typeof envelope !== 'object') {
+					this.deps.log(`No valid snapshot found for ${cacheId}, starting with empty cache`);
+					return;
+				}
+
+				// Cache version mismatch: reset stale-entity cleanup flag so the next
+				// sync will re-verify and delete obsolete Azure entities.
+				if (envelope.cacheVersion !== this.cacheVersion) {
+					this.deps.log(`Cache version mismatch (stored: ${envelope.cacheVersion}, current: ${this.cacheVersion}) for ${cacheId}. Clearing cache.`);
+					this.sessionFileCache = new Map();
+					try { this.context.globalState.update('backend.lastCleanSyncVersion', undefined); } catch { /* best-effort */ }
+					return;
+				}
+
+				if (
+					envelope.schemaVersion !== CacheManager.SNAPSHOT_SCHEMA_VERSION ||
+					typeof envelope.entries !== 'object'
+				) {
+					this.deps.log(`Snapshot schema mismatch or missing entries for ${cacheId}, starting with empty cache`);
+					return;
+				}
+
+				this.sessionFileCache = new Map(
+					Object.entries(envelope.entries as Record<string, SessionFileCache>),
+				);
+				this.deps.log(`Loaded ${this.sessionFileCache.size} cached session files from disk snapshot (${cacheId})`);
+
+				// Record the snapshot mtime so loadSharedSnapshotIfChanged won't reload it redundantly.
+				try {
+					const stat = await fs.promises.stat(snapshotPath);
+					this.lastLoadedSnapshotMtime = stat.mtimeMs;
+				} catch { /* best-effort */ }
+
+			} catch (readErr: unknown) {
+				if ((readErr as NodeJS.ErrnoException).code === 'ENOENT') {
+					this.deps.log(`No snapshot found for ${cacheId}, starting with empty cache`);
+				} else {
+					throw readErr;
+				}
 			}
 		} catch (error) {
 			this.deps.error(`Error loading cache from storage: ${error}`);
-			// Start with empty cache on error
 			this.sessionFileCache = new Map();
 		}
 	}
 
 	/**
-	 * One-time migration: remove old per-session cache keys that were created by
-	 * earlier versions of the extension (keys containing sessionId or timestamp).
-	 * Also removes the legacy unscoped keys ('sessionFileCache', 'sessionFileCacheVersion').
+	 * Remove all session file cache entries from globalState.
+	 * The cache now lives exclusively on disk (globalStorageUri snapshot).
+	 * Clears both legacy keys from old extension versions AND the current scoped keys
+	 * so that existing installations shed the large payload on their next startup.
+	 * Idempotent: calling on an already-migrated store is a no-op.
 	 */
-	migrateOldCacheKeys(currentCacheId: string): void {
+	migrateOldCacheKeys(_currentCacheId: string): void {
 		try {
 			const allKeys = this.context.globalState.keys();
-			const currentCacheKey = `sessionFileCache_${currentCacheId}`;
-			const currentVersionKey = `sessionFileCacheVersion_${currentCacheId}`;
 			let removedCount = 0;
 			for (const key of allKeys) {
-				if (this.removeObsoleteCacheKey(key, currentCacheKey, currentVersionKey)) {
+				if (this.isCacheGlobalStateKey(key)) {
+					this.context.globalState.update(key, undefined);
 					removedCount++;
 				}
 			}
 			if (removedCount > 0) {
-				this.deps.log(`Migrated: removed ${removedCount} old cache keys from globalState`);
+				this.deps.log(`Migrated: removed ${removedCount} cache keys from globalState (cache now on disk)`);
 			}
 		} catch (error) {
 			this.deps.error(`Error migrating old cache keys: ${error}`);
 		}
 	}
 
-	private removeObsoleteCacheKey(key: string, currentCacheKey: string, currentVersionKey: string): boolean {
-		if (key.startsWith('sessionFileCacheTimestamp_')) {
-			this.context.globalState.update(key, undefined);
-			return true;
-		}
-		if (key.startsWith('sessionFileCache_') && key !== currentCacheKey) {
-			const suffix = key.replace('sessionFileCache_', '');
-			if (suffix !== 'dev' && suffix !== 'prod') {
-				this.context.globalState.update(key, undefined);
-				return true;
-			}
-		}
-		if (key.startsWith('sessionFileCacheVersion_') && key !== currentVersionKey) {
-			const suffix = key.replace('sessionFileCacheVersion_', '');
-			if (suffix !== 'dev' && suffix !== 'prod') {
-				this.context.globalState.update(key, undefined);
-				return true;
-			}
-		}
-		if (key === 'sessionFileCache' || key === 'sessionFileCacheVersion') {
-			this.context.globalState.update(key, undefined);
-			return true;
-		}
-		return false;
+	/** Returns true for any globalState key that holds session-file cache payload. */
+	private isCacheGlobalStateKey(key: string): boolean {
+		return (
+			key === 'sessionFileCache' ||
+			key === 'sessionFileCacheVersion' ||
+			key.startsWith('sessionFileCache_') ||
+			key.startsWith('sessionFileCacheVersion_') ||
+			key.startsWith('sessionFileCacheTimestamp_')
+		);
 	}
 
 	async saveCacheToStorage(): Promise<void> {
@@ -342,16 +362,10 @@ export class CacheManager {
 		}
 		try {
 			const cacheId = this.getCacheIdentifier();
-			const versionKey = `sessionFileCacheVersion_${cacheId}`;
-			const cacheKey = `sessionFileCache_${cacheId}`;
-			
-			// Convert Map to plain object for storage
-			const cacheData = Object.fromEntries(this.sessionFileCache);
-			await this.context.globalState.update(cacheKey, cacheData);
-			await this.context.globalState.update(versionKey, this.cacheVersion);
-			this.deps.log(`Saved ${this.sessionFileCache.size} cached session files to storage (version ${this.cacheVersion}, ${cacheId})`);
-			// Publish a shared on-disk snapshot so other VS Code windows can reload the
-			// parsed data instead of re-reading every session file themselves.
+
+			// Persist to the shared on-disk snapshot only (no globalState write to
+			// avoid VS Code's large-extension-state warning).
+			this.deps.log(`Saving ${this.sessionFileCache.size} cached session files to disk snapshot (version ${this.cacheVersion}, ${cacheId})`);
 			await this.writeSharedSnapshot();
 		} catch (error) {
 			this.deps.error(`Error saving cache to storage: ${error}`);
@@ -421,7 +435,23 @@ export class CacheManager {
 	}
 
 	/**
-	 * Union the existing on-disk snapshot with the in-memory cache, keeping the
+	 * Delete the shared on-disk snapshot and reset the loaded-mtime bookmark.
+	 * Called by clearCache() so that restarting VS Code does not restore cleared data.
+	 */
+	async deleteSharedSnapshot(): Promise<void> {
+		const snapshotPath = this.getSharedSnapshotPath();
+		try {
+			await fs.promises.unlink(snapshotPath);
+			this.lastLoadedSnapshotMtime = 0;
+			this.deps.log(`Deleted shared cache snapshot (${this.getCacheIdentifier()})`);
+		} catch (err: unknown) {
+			if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+				this.deps.warn(`Failed to delete shared cache snapshot: ${err}`);
+			}
+		}
+	}
+
+	/**
 	 * newer entry by mtime, and cap the result to the newest SNAPSHOT_MAX_ENTRIES.
 	 */
 	private async buildMergedSnapshotEntries(): Promise<Record<string, SessionFileCache>> {
