@@ -12,7 +12,7 @@ import toolNamesData from './toolNames.json';
 import customizationPatternsData from './customizationPatterns.json';
 import copilotPlansData from './copilotPlans.json';
 import * as packageJson from '../package.json';
-import { getToolFamilies } from './toolFamilies';
+import { getToolFamilies, DEFAULT_TOOL_FAMILIES } from './toolFamilies';
 
 // --- Core types ---
 import type {
@@ -7117,6 +7117,7 @@ ${this.getLoadingHtmlScript()}
       configureTeamServer: () => this.dispatch('configureTeamServer:diagnostics', () => this.diagHandleConfigureTeamServer()),
       openSettings: () => this.dispatch('openSettings:diagnostics', () => vscode.commands.executeCommand("workbench.action.openSettings", "aiEngineeringFluency.backend")),
       openDisplaySettings: () => this.dispatch('openDisplaySettings:diagnostics', () => vscode.commands.executeCommand("workbench.action.openSettings", "aiEngineeringFluency.display")),
+      openToolFamiliesSettings: () => this.dispatch('openToolFamiliesSettings:diagnostics', () => vscode.commands.executeCommand("workbench.action.openSettings", "aiEngineeringFluency.toolFamilies")),
       resetDebugCounters: () => this.dispatch('resetDebugCounters:diagnostics', () => this.diagHandleResetDebugCounters()),
       authenticateGitHub: () => this.dispatch('authenticateGitHub:diagnostics', () => this.diagHandleGitHubAuth(true)),
       signOutGitHub: () => this.dispatch('signOutGitHub:diagnostics', () => this.diagHandleGitHubAuth(false)),
@@ -8327,6 +8328,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<AiFlue
   // Migrate settings from the old copilotTokenTracker namespace to aiEngineeringFluency.
   // Run before any other settings are read so the new keys are populated first.
   await migrateSettingsIfNeeded(context, (m) => tokenTracker.log(m));
+
+  // Pre-fill toolFamilies setting with defaults so users have a starting point for customisation.
+  const cfg = vscode.workspace.getConfiguration('aiEngineeringFluency');
+  const existingFamilies = cfg.get<unknown[]>('toolFamilies');
+  if (!existingFamilies || existingFamilies.length === 0) {
+    await cfg.update('toolFamilies', DEFAULT_TOOL_FAMILIES, vscode.ConfigurationTarget.Global);
+  }
 
   // Migrate any stored shared key secrets from the old key name to the new key name.
   await migrateSecretsIfNeeded(context, (m) => tokenTracker.log(m));

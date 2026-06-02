@@ -414,6 +414,21 @@ body {
 	color: var(--fg-muted, #ccc);
 }
 
+.inline-link {
+	background: none;
+	border: none;
+	padding: 0;
+	color: var(--link-color, #4fc1ff);
+	cursor: pointer;
+	font-size: inherit;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.inline-link:hover {
+	opacity: 0.8;
+}
+
 
 .session-table tr:hover {
 	background: rgb(255, 255, 255, 0.03);

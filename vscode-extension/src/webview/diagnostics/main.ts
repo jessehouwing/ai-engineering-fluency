@@ -1267,6 +1267,9 @@ function setupToolAnalysisSortHandlers(): void {
       reRenderToolAnalysisTable();
     });
   });
+  document.getElementById("btn-open-tool-families-settings")?.addEventListener("click", () => {
+    vscode.postMessage({ command: "openToolFamiliesSettings" });
+  });
 }
 
 function setupFileLinks(): void {
@@ -2038,7 +2041,7 @@ function renderToolAnalysisTab(toolCallStats: DiagnosticsData['toolCallStats'], 
   return `<div id="tab-tool-analysis" class="tab-content">
 <div class="info-box">
 <div class="info-box-title">🔧 Tool Output Token Analysis</div>
-<div>Tokens produced by each tool's output over the last 30 days. Tools are grouped by family. <strong>vs Built-in</strong> shows how an alternative compares to the pooled baseline — green is more token-efficient. Click column headers to sort within each group. Configure families via <code>aiEngineeringFluency.toolFamilies</code> in VS Code settings.</div>
+<div>Tokens produced by each tool's output over the last 30 days. Tools are grouped by family. <strong>vs Built-in</strong> shows how an alternative compares to the pooled baseline — green is more token-efficient. Click column headers to sort within each group. <button class="inline-link" id="btn-open-tool-families-settings">Configure tool families ↗</button></div>
 </div>
 ${sectionsHtml}
 </div>`;
