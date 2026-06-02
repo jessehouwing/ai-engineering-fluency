@@ -414,7 +414,7 @@ jobs:
               sys.exit(1)
           PYEOF
 
-            - name: Update toolNames.json with new entries
+      - name: Update toolNames.json with new entries
         if: steps.extract.outputs.has_missing == 'true'
         run: |
           python3 - << 'PYEOF'
