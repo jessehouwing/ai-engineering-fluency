@@ -5,8 +5,10 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 import { ClaudeCodeDataAccess, normalizeClaudeModelId } from '../../src/claudecode';
+import { ClaudeCodeAdapter } from '../../src/adapters/claudeCodeAdapter';
 
 const claudeCode = new ClaudeCodeDataAccess();
+const claudeCodeAdapter = new ClaudeCodeAdapter(claudeCode);
 
 // ----- normalizeClaudeModelId -----
 
@@ -730,4 +732,103 @@ test('getClaudeCodeModelUsage: crashed session contributes partial tokens per mo
         } finally {
                 cleanup(filePath);
         }
+});
+// ----- ClaudeCodeAdapter.analyzeUsage: compact_boundary / __auto_compact__ -----
+
+const adapterCtx = { modelPricing: {}, toolNameMap: {} };
+
+test('ClaudeCodeAdapter.analyzeUsage: increments __auto_compact__ for trigger=auto', async () => {
+const events = [
+{
+type: 'system',
+subtype: 'compact_boundary',
+content: 'Conversation compacted',
+isMeta: false,
+timestamp: '2026-05-06T10:15:34.700Z',
+uuid: '1d887419-0000-0000-0000-000000000001',
+compactMetadata: { trigger: 'auto', preTokens: 170679, postTokens: 8697, durationMs: 72528 },
+entrypoint: 'claude-desktop'
+}
+];
+const filePath = createTempSession(events);
+try {
+const result = await claudeCodeAdapter.analyzeUsage(filePath, adapterCtx);
+assert.equal(result.toolCalls.byTool['__auto_compact__'], 1);
+} finally {
+cleanup(filePath);
+}
+});
+
+test('ClaudeCodeAdapter.analyzeUsage: accumulates multiple auto-compact events', async () => {
+const events = [
+{
+type: 'system',
+subtype: 'compact_boundary',
+compactMetadata: { trigger: 'auto', preTokens: 170679, postTokens: 8697, durationMs: 72528 },
+},
+{
+type: 'system',
+subtype: 'compact_boundary',
+compactMetadata: { trigger: 'auto', preTokens: 180000, postTokens: 9000, durationMs: 60000 },
+}
+];
+const filePath = createTempSession(events);
+try {
+const result = await claudeCodeAdapter.analyzeUsage(filePath, adapterCtx);
+assert.equal(result.toolCalls.byTool['__auto_compact__'], 2);
+} finally {
+cleanup(filePath);
+}
+});
+
+test('ClaudeCodeAdapter.analyzeUsage: does NOT count __auto_compact__ for trigger=manual', async () => {
+const events = [
+{
+type: 'system',
+subtype: 'compact_boundary',
+compactMetadata: { trigger: 'manual', preTokens: 50000, postTokens: 5000, durationMs: 10000 },
+}
+];
+const filePath = createTempSession(events);
+try {
+const result = await claudeCodeAdapter.analyzeUsage(filePath, adapterCtx);
+assert.equal(result.toolCalls.byTool['__auto_compact__'] ?? 0, 0);
+} finally {
+cleanup(filePath);
+}
+});
+
+test('ClaudeCodeAdapter.analyzeUsage: auto-compact does NOT inflate toolCalls.total', async () => {
+const events = [
+{
+type: 'system',
+subtype: 'compact_boundary',
+compactMetadata: { trigger: 'auto', preTokens: 170679, postTokens: 8697, durationMs: 72528 },
+}
+];
+const filePath = createTempSession(events);
+try {
+const result = await claudeCodeAdapter.analyzeUsage(filePath, adapterCtx);
+assert.equal(result.toolCalls.total, 0);
+} finally {
+cleanup(filePath);
+}
+});
+
+test('ClaudeCodeAdapter.analyzeUsage: ignores system events with unknown subtype', async () => {
+const events = [
+{
+type: 'system',
+subtype: 'something_else',
+content: 'unknown system event',
+}
+];
+const filePath = createTempSession(events);
+try {
+const result = await claudeCodeAdapter.analyzeUsage(filePath, adapterCtx);
+assert.equal(result.toolCalls.byTool['__auto_compact__'] ?? 0, 0);
+assert.equal(result.toolCalls.total, 0);
+} finally {
+cleanup(filePath);
+}
 });

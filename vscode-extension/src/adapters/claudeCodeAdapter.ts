@@ -110,11 +110,21 @@ export class ClaudeCodeAdapter implements IEcosystemAdapter, IDiscoverableEcosys
 				this.processUserEvent(event, analysis);
 			} else if (event.type === 'assistant') {
 				this.processAssistantEvent(event, analysis, ctx, models);
+			} else if (event.type === 'system' && event.subtype === 'compact_boundary') {
+				this.processCompactBoundaryEvent(event, analysis);
 			}
 		}
 		this.applyModelSwitchingStats(models, analysis);
 		applyModelTierClassification(ctx.modelPricing, analysis.modelSwitching.uniqueModels, models, analysis);
 		return analysis;
+	}
+
+	private processCompactBoundaryEvent(event: any, analysis: import('../types').SessionUsageAnalysis): void {
+		if (event.compactMetadata?.trigger === 'auto') {
+			// Auto-compaction means the context window was exhausted without user action — negative signal.
+			// Stored with a double-underscore prefix so it doesn't inflate toolCalls.total.
+			analysis.toolCalls.byTool['__auto_compact__'] = (analysis.toolCalls.byTool['__auto_compact__'] || 0) + 1;
+		}
 	}
 
 	private processUserEvent(event: any, analysis: import('../types').SessionUsageAnalysis): void {
