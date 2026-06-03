@@ -106,6 +106,11 @@ type DisplaySettings = {
   monthlyBudget?: number;
 };
 
+type QuotaEntitlements = {
+  premium_interactions?: number;
+  completions?: number;
+};
+
 type DiagnosticsData = {
   report: string;
   sessionFiles: { file: string; size: number; modified: string }[];
@@ -118,6 +123,7 @@ type DiagnosticsData = {
   githubAuth?: GitHubAuthStatus;
   sessionFolders?: SessionFolder[];
   displaySettings?: DisplaySettings;
+  quotaEntitlements?: QuotaEntitlements;
   toolCallStats?: { total: number; byTool: { [key: string]: number }; outputTokensByTool?: { [key: string]: number } } | null;
   toolFamilies?: ToolFamilyConfig[];
 };
@@ -1893,6 +1899,29 @@ Set a monthly AI spend budget in USD to get visual alerts on the status bar. The
   <input id="input-monthly-budget" type="number" min="0" max="99999" step="0.01" value="${monthlyBudget}" style="background: #2d2d2d; color: #ccc; border: 1px solid #555; border-radius: 4px; padding: 4px 8px; font-size: 13px; width: 100px;" />
 </div>
 <p class="hint">Budget coloring uses the current calendar month's estimated cost. Set to 0 to disable.</p>
+${
+  data.quotaEntitlements && data.quotaEntitlements.premium_interactions
+    ? `<p class="hint" style="color: #90ee90;"><strong>ℹ️ API-driven budget:</strong> Your premium_interactions quota entitlement is <strong>$${data.quotaEntitlements.premium_interactions.toFixed(2)}</strong>/month. If the budget above is 0 or empty, this API value will be used as your effective budget.</p>`
+    : ''
+}
+</div>
+<div class="backend-card">
+<h4>📊 API Quota Information</h4>
+${
+  data.quotaEntitlements
+    ? `<p>
+${
+      data.quotaEntitlements.premium_interactions
+        ? `<strong>Premium Interactions:</strong> $${data.quotaEntitlements.premium_interactions.toFixed(2)}/month<br/>`
+        : ''
+}${
+      data.quotaEntitlements.completions
+        ? `<strong>Completions:</strong> $${data.quotaEntitlements.completions.toFixed(2)}/month<br/>`
+        : ''
+}
+    </p>`
+    : `<p class="hint">No quota information available from the API yet. Sign out and back in to refresh.</p>`
+}
 </div>
 <div class="backend-card">
 <h4>🔢 Number Formatting</h4>

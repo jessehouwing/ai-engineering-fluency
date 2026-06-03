@@ -167,6 +167,9 @@ import {
 	discoverGitHubRepos,
 	fetchRepoPrs,
 	fetchCopilotPlanInfo,
+	fetchCopilotTokenEndpointInfo,
+	fetchUserEnterprises,
+	fetchEnterprisePremiumBudgets,
 	type CopilotPlanInfo,
 	type RepoPrDetail,
 	type RepoPrInfo,
@@ -449,6 +452,8 @@ class CopilotTokenTracker implements vscode.Disposable {
 	private _githubSignedOutByUser: boolean = false;
 	/** Resolved Copilot plan details fetched from copilot_internal/user after sign-in. */
 	private _copilotPlanResolved: { planId: string; planName: string; monthlyAiCreditsUsd: number; monthlyPremiumRequests: number | null } | undefined;
+	/** Quota entitlements from copilot_internal/user response (e.g., premium_interactions entitlement). */
+	private _copilotQuotaEntitlements: { premium_interactions?: number; completions?: number } = {};
 
 	// Cached PR stats result for the repos tab
 	private _lastRepoPrStats?: RepoPrStatsResult;
@@ -1546,25 +1551,100 @@ class CopilotTokenTracker implements vscode.Disposable {
 	}
 
 	/**
-	 * Fetch and log Copilot plan information for the authenticated user.
-	 * Best-effort: silently skips if not authenticated or if the endpoint is unavailable.
+	 * Fetch and log Copilot plan information and token endpoint metadata for the authenticated user.
+	 * Both API calls run in parallel so all Copilot info is logged together as a single grouped block.
+	 * For enterprise or business plans, also discovers the enterprise/org and checks the premium request budget.
+	 * Best-effort: each call is independent — a failure in one does not suppress the other.
 	 */
 	private async loadAndLogCopilotPlanInfo(): Promise<void> {
 		if (!this.githubSession) { return; }
-		try {
-			const { planInfo, statusCode, error } = await fetchCopilotPlanInfo(this.githubSession.accessToken);
-			if (error || !planInfo) {
-				this.warn(`Copilot plan info unavailable (HTTP ${statusCode ?? 'n/a'}): ${error ?? 'no data'}`);
-				return;
-			}
+
+		const [planResult, tokenResult] = await Promise.all([
+			fetchCopilotPlanInfo(this.githubSession.accessToken).catch((err): ReturnType<typeof fetchCopilotPlanInfo> => Promise.resolve({ error: String(err) })),
+			fetchCopilotTokenEndpointInfo(this.githubSession.accessToken).catch((err): ReturnType<typeof fetchCopilotTokenEndpointInfo> => Promise.resolve({ error: String(err) })),
+		]);
+
+		// Log plan info
+		const { planInfo, statusCode: planStatus, error: planError } = planResult;
+		let isOrgPlan = false;
+		if (planError || !planInfo) {
+			this.warn(`Copilot plan info unavailable (HTTP ${planStatus ?? 'n/a'}): ${planError ?? 'no data'}`);
+		} else {
 			const planId = planInfo.copilot_plan as string | undefined;
+			const planIdLower = (planId ?? '').toLowerCase();
+			// Business and Enterprise plans are both backed by a GitHub Enterprise — show enterprise/budget info for both
+			isOrgPlan = planIdLower.includes('enterprise') || planIdLower.includes('business');
 			const plans = copilotPlansData.plans as Record<string, { name: string; monthlyPremiumRequests: number | null; monthlyPricePerUser: number; monthlyAiCreditsUsd: number }>;
 			const knownPlan = planId ? plans[planId] : undefined;
 			const planLabel = knownPlan ? `${knownPlan.name} (${planId})` : (planId ?? 'unknown');
 			this.log(`Copilot plan: ${planLabel}`);
 			this.logCopilotPlanDetails(planId, knownPlan, planInfo);
-		} catch (err) {
-			this.warn('Failed to load Copilot plan info: ' + String(err));
+		}
+
+		// Log token endpoint info
+		const { info, statusCode: tokenStatus, error: tokenError } = tokenResult;
+		if (tokenError || !info) {
+			this.warn(`Copilot token endpoint info unavailable (HTTP ${tokenStatus ?? 'n/a'}): ${tokenError ?? 'no data'}`);
+		} else {
+			if (info.endpoints?.api) { this.log(`  Copilot API endpoint: ${info.endpoints.api}`); }
+			if (info.expires_at !== undefined) { this.log(`  Copilot token valid until: ${new Date(info.expires_at * 1000).toISOString()}`); }
+			if (info.sku) { this.log(`  Copilot SKU: ${info.sku}`); }
+		}
+
+		// For business/enterprise plans: discover enterprise and check premium request budget
+		if (isOrgPlan) {
+			await this.loadAndLogEnterpriseInfo();
+		}
+	}
+
+	/**
+	 * Discover which GitHub Enterprise(s) the user belongs to and fetch the premium request budget.
+	 * Fires for both Copilot Business and Copilot Enterprise plans (both are backed by a GitHub Enterprise).
+	 * Uses GraphQL viewer.enterprises and the enterprise billing/budgets endpoint.
+	 * Best-effort: requires enterprise admin or billing manager for budget data.
+	 */
+	private async loadAndLogEnterpriseInfo(): Promise<void> {
+		if (!this.githubSession) { return; }
+
+		const { enterprises, error: entError } = await fetchUserEnterprises(this.githubSession.accessToken);
+		if (entError || !enterprises?.length) {
+			this.warn(`Enterprise discovery unavailable: ${entError ?? 'no enterprises found'}`);
+			return;
+		}
+
+		const username = this.githubSession.account.label;
+		this.log(`  Enterprise(s): ${enterprises.map((e) => `${e.name} (${e.slug})`).join(', ')}`);
+
+		// Fetch budget for each enterprise in parallel
+		const budgetResults = await Promise.all(
+			enterprises.map((e) =>
+				fetchEnterprisePremiumBudgets(e.slug, username, this.githubSession!.accessToken)
+					.then((r) => ({ enterprise: e, ...r }))
+					.catch((err) => ({ enterprise: e, error: String(err) }))
+			)
+		);
+
+		for (const result of budgetResults) {
+			const { enterprise, budgets, statusCode, error } = result as { enterprise: { slug: string; name: string }; budgets?: any[]; statusCode?: number; error?: string };
+			if (error) {
+				// 403 means the user isn't an admin/billing manager — log quietly
+				const isForbidden = statusCode === 403 || error.includes('403');
+				if (isForbidden) {
+					this.log(`  Budget (${enterprise.slug}): not accessible (requires enterprise admin or billing manager)`);
+				} else {
+					this.warn(`  Budget fetch failed for ${enterprise.slug} (HTTP ${statusCode ?? 'n/a'}): ${error}`);
+				}
+				continue;
+			}
+			if (!budgets?.length) {
+				this.log(`  Budget (${enterprise.slug}): no premium request budgets configured`);
+				continue;
+			}
+			for (const budget of budgets) {
+				const amount = budget.budget_amount !== undefined ? `$${budget.budget_amount}` : 'n/a';
+				const block = budget.prevent_further_usage ? ', blocks usage' : '';
+				this.log(`  Budget (${enterprise.slug}): ${amount}/month${block} [${budget.budget_scope ?? 'unknown scope'}]`);
+			}
 		}
 	}
 
@@ -1583,10 +1663,57 @@ class CopilotTokenTracker implements vscode.Disposable {
 		} else if (planId) {
 			this._copilotPlanResolved = { planId, planName: planId, monthlyAiCreditsUsd: 0, monthlyPremiumRequests: null };
 		}
-		if (planInfo.ide_chat !== undefined)          { this.log(`  IDE chat: ${planInfo.ide_chat}`); }
-		if (planInfo.copilot_ide_agent !== undefined) { this.log(`  Agent mode: ${planInfo.copilot_ide_agent}`); }
-		if (planInfo.public_code_suggestions !== undefined) { this.log(`  Public code suggestions: ${planInfo.public_code_suggestions}`); }
-		if (planInfo.unlimited_pr_summaries !== undefined)  { this.log(`  Unlimited PR summaries: ${planInfo.unlimited_pr_summaries}`); }
+
+		// Log user info from copilot_internal/user response
+		if (planInfo.login != null)                              { this.log(`  Login: ${planInfo.login}`); }
+		if (planInfo.chat_enabled != null)                      { this.log(`  Chat enabled: ${planInfo.chat_enabled}`); }
+		if (planInfo.cli_enabled != null)                       { this.log(`  CLI enabled: ${planInfo.cli_enabled}`); }
+		if (planInfo.is_mcp_enabled != null)                    { this.log(`  MCP enabled: ${planInfo.is_mcp_enabled}`); }
+		if (planInfo.editor_preview_features_enabled != null)   { this.log(`  Editor preview features: ${planInfo.editor_preview_features_enabled}`); }
+		if (planInfo.copilotignore_enabled != null)             { this.log(`  Copilotignore enabled: ${planInfo.copilotignore_enabled}`); }
+		if (planInfo.restricted_telemetry != null)              { this.log(`  Restricted telemetry: ${planInfo.restricted_telemetry}`); }
+		if (planInfo.access_type_sku != null)                   { this.log(`  Access type SKU: ${planInfo.access_type_sku}`); }
+		if (planInfo.assigned_date != null)                     { this.log(`  Assigned date: ${planInfo.assigned_date}`); }
+		if (planInfo.organization_list != null && Array.isArray(planInfo.organization_list)) {
+			this.log(`  Organizations: ${planInfo.organization_list.join(', ')}`);
+		}
+		if (planInfo.quota_reset_date_utc != null)              { this.log(`  Quota reset date (UTC): ${planInfo.quota_reset_date_utc}`); }
+		if (planInfo.quota_reset_date != null)                  { this.log(`  Quota reset date: ${planInfo.quota_reset_date}`); }
+		if (planInfo.token_based_billing != null)               { this.log(`  Token-based billing: ${planInfo.token_based_billing}`); }
+		if (planInfo.analytics_tracking_id != null)             { this.log(`  Analytics tracking ID: ${planInfo.analytics_tracking_id}`); }
+
+		// Log quota snapshots if present
+		if (planInfo.quota_snapshots && typeof planInfo.quota_snapshots === 'object') {
+			for (const [key, snapshot] of Object.entries(planInfo.quota_snapshots)) {
+				const qs = snapshot as any;
+				if (typeof qs === 'object' && qs !== null) {
+					// Capture entitlements (in cents) for use in budget fallback, convert to dollars
+					if (key === 'premium_interactions' && qs.entitlement != null) {
+						this._copilotQuotaEntitlements.premium_interactions = qs.entitlement / 100;
+					} else if (key === 'completions' && qs.entitlement != null) {
+						this._copilotQuotaEntitlements.completions = qs.entitlement / 100;
+					}
+
+					const parts: string[] = [];
+					if (qs.quota_id != null)              parts.push(`id=${qs.quota_id}`);
+					if (qs.entitlement != null)          parts.push(`entitlement=${qs.entitlement} cents ($${(qs.entitlement / 100).toFixed(2)})`);
+					if (qs.unlimited != null)            parts.push(`unlimited=${qs.unlimited}`);
+					if (qs.quota_remaining != null)      parts.push(`remaining=${qs.quota_remaining}`);
+					if (qs.percent_remaining != null)    parts.push(`${qs.percent_remaining}%`);
+					if (qs.overage_count != null)        parts.push(`overage=${qs.overage_count}`);
+					if (qs.quota_reset_at != null)       parts.push(`reset=${qs.quota_reset_at}`);
+					if (parts.length > 0) {
+						this.log(`  Quota (${key}): ${parts.join(', ')}`);
+					}
+				}
+			}
+		}
+
+		// Log legacy fields if present (for backwards compatibility)
+		if (planInfo.ide_chat != null)          { this.log(`  IDE chat: ${planInfo.ide_chat}`); }
+		if (planInfo.copilot_ide_agent != null) { this.log(`  Agent mode: ${planInfo.copilot_ide_agent}`); }
+		if (planInfo.public_code_suggestions != null) { this.log(`  Public code suggestions: ${planInfo.public_code_suggestions}`); }
+		if (planInfo.unlimited_pr_summaries != null)  { this.log(`  Unlimited PR summaries: ${planInfo.unlimited_pr_summaries}`); }
 	}
 
 	public async updateTokenStats(silent: boolean = false, skipIfBusy = false): Promise<DetailedStats | undefined> {
@@ -2530,10 +2657,15 @@ class CopilotTokenTracker implements vscode.Disposable {
 	}
 
 	/** Returns the effective monthly budget: the explicitly configured value if set, otherwise falls back
-	 *  to the monthly AI credits included with the user's Copilot plan (derived from license info). */
+	 *  to the monthly AI credits included with the user's Copilot plan, or the premium_interactions
+	 *  quota entitlement from the API if available. */
 	private getEffectiveMonthlyBudget(): number {
 		const configured = this.getMonthlyBudgetSetting();
 		if (configured > 0) { return configured; }
+		// Fall back to quota entitlement (premium_interactions) if available, then to plan credits
+		if (this._copilotQuotaEntitlements.premium_interactions) {
+			return this._copilotQuotaEntitlements.premium_interactions;
+		}
 		return this._copilotPlanResolved?.monthlyAiCreditsUsd ?? 0;
 	}
 
@@ -7705,6 +7837,7 @@ ${this.getLoadingHtmlScript()}
       cacheInfo, backendStorageInfo,
       backendConfigured: this.isBackendConfigured(), isDebugMode, globalStateCounters,
       displaySettings: { showTokens: this.getStatusBarShowTokensSetting(), showCost: this.getStatusBarShowCostSetting(), monthlyBudget: this.getMonthlyBudgetSetting() },
+      quotaEntitlements: this._copilotQuotaEntitlements,
       toolCallStats: this.lastUsageAnalysisStats?.last30Days?.toolCalls ?? null,
       toolFamilies: getToolFamilies(),
     }).replace(/</g, "\\u003c");
