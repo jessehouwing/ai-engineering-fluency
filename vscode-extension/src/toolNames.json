@@ -795,6 +795,7 @@
   ,"azure-documentation": "Azure Documentation"
   ,"azure-extension_cli_generate": "Azure Extension CLI Generate"
   ,"azure-get_azure_bestpractices": "Get Azure Best Practices"
+  ,"__auto_compact__": "Auto Compact"
   ,"mcp_github_get_teams": "GitHub MCP (Remote): Get Teams"
   ,"mcp_github_list_issue_types": "GitHub MCP (Remote): List Issue Types"
   ,"mcp_github_mcp_se_issue_write": "GitHub MCP (Remote): Write Issue"
