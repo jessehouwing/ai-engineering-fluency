@@ -259,7 +259,7 @@ object WebviewResources {
                        height: 100vh; margin: 0; padding: 24px; box-sizing: border-box; text-align: center; }
                 .icon { font-size: 32px; }
                 .title { font-size: 15px; font-weight: 600; margin: 8px 0; }
-                .detail { font-size: 12px; color: #999; max-width: 480px; white-space: pre-wrap; word-break: break-word; }
+                .detail { font-size: 12px; color: #999; max-width: 480px; white-space: pre-wrap; word-break: break-word; text-align: center;}
                 .repo-link { margin-top: 16px; font-size: 12px; }
                 .repo-link a { color: #4daafc; text-decoration: none; }
                 .repo-link a:hover { text-decoration: underline; }
