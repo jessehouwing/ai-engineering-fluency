@@ -141,6 +141,11 @@ interface InsightDefinition {
 }
 
 // ---------------------------------------------------------------------------
+/** Count of auto-compaction events in a period (Claude Code / Desktop only). */
+function autoCompactCount(p: UsageAnalysisPeriod): number {
+	return p.toolCalls.byTool['__auto_compact__'] ?? 0;
+}
+
 // Starter catalog
 // Sub-session agents will add entries here for trend data, context quality,
 // focus times, streaks, and MCP/tool adoption insights.
@@ -651,6 +656,21 @@ export const INSIGHT_CATALOG: InsightDefinition[] = [
 		},
 		appliesTo: (ctx) => manualCompactCount(ctx.last30Days) >= 5,
 		weight: 50,
+		allowToast: true,
+	},
+	{
+		id: 'auto-compaction-pattern',
+		category: 'consistency',
+		severity: 'opportunity',
+		title: '⚠️ Claude Code is auto-compacting your sessions',
+		buildBody: (ctx) => {
+			const n = autoCompactCount(ctx.last30Days);
+			return `Claude Code hit the context window limit and auto-compacted ${n} session${n !== 1 ? 's' : ''} in the last 30 days. ` +
+				`Auto-compaction means earlier context was lost without your control — you may have noticed replies suddenly lacking earlier detail. ` +
+				`To avoid this: start a fresh chat (\`/new\`) when switching tasks, and use \`/compact\` yourself before the window fills.`;
+		},
+		appliesTo: (ctx) => autoCompactCount(ctx.last30Days) >= 2,
+		weight: 65,
 		allowToast: true,
 	},
 
