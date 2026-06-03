@@ -2,7 +2,7 @@
   "name": "ai-engineering-fluency",
   "displayName": "AI Engineering Fluency",
   "description": "Track your AI Engineering Fluency — daily and monthly token usage, cost estimates, and AI fluency insights in VS Code.",
-  "version": "0.11.3",
+  "version": "0.11.4",
   "publisher": "RobBos",
   "icon": "assets/logo.png",
   "engines": {
@@ -378,7 +378,12 @@
           "description": "Override or extend tool family groupings used in the Tool Output Token Analysis tab. Each entry with an 'id' matching a built-in family replaces that family entirely. Entries with new 'id' values are appended. Leave empty to use the built-in defaults. Example: { \"id\": \"reading\", \"name\": \"File Reading\", \"builtIn\": [\"read\"], \"alternatives\": [\"lean-ctx\", \"my-custom-reader\"] }",
           "items": {
             "type": "object",
-            "required": ["id", "name", "builtIn", "alternatives"],
+            "required": [
+              "id",
+              "name",
+              "builtIn",
+              "alternatives"
+            ],
             "properties": {
               "id": {
                 "type": "string",
@@ -390,12 +395,16 @@
               },
               "builtIn": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Built-in / baseline tool names that define the reference performance. Tool names must match exactly as they appear in session logs."
               },
               "alternatives": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Alternative or efficient-replacement tool names to compare against the built-ins."
               },
               "description": {
