@@ -1661,10 +1661,50 @@ class CopilotTokenTracker implements vscode.Disposable {
 		} else if (planId) {
 			this._copilotPlanResolved = { planId, planName: planId, monthlyAiCreditsUsd: 0, monthlyPremiumRequests: null };
 		}
-		if (planInfo.ide_chat !== undefined)          { this.log(`  IDE chat: ${planInfo.ide_chat}`); }
-		if (planInfo.copilot_ide_agent !== undefined) { this.log(`  Agent mode: ${planInfo.copilot_ide_agent}`); }
-		if (planInfo.public_code_suggestions !== undefined) { this.log(`  Public code suggestions: ${planInfo.public_code_suggestions}`); }
-		if (planInfo.unlimited_pr_summaries !== undefined)  { this.log(`  Unlimited PR summaries: ${planInfo.unlimited_pr_summaries}`); }
+
+		// Log user info from copilot_internal/user response
+		if (planInfo.login != null)                              { this.log(`  Login: ${planInfo.login}`); }
+		if (planInfo.chat_enabled != null)                      { this.log(`  Chat enabled: ${planInfo.chat_enabled}`); }
+		if (planInfo.cli_enabled != null)                       { this.log(`  CLI enabled: ${planInfo.cli_enabled}`); }
+		if (planInfo.is_mcp_enabled != null)                    { this.log(`  MCP enabled: ${planInfo.is_mcp_enabled}`); }
+		if (planInfo.editor_preview_features_enabled != null)   { this.log(`  Editor preview features: ${planInfo.editor_preview_features_enabled}`); }
+		if (planInfo.copilotignore_enabled != null)             { this.log(`  Copilotignore enabled: ${planInfo.copilotignore_enabled}`); }
+		if (planInfo.restricted_telemetry != null)              { this.log(`  Restricted telemetry: ${planInfo.restricted_telemetry}`); }
+		if (planInfo.access_type_sku != null)                   { this.log(`  Access type SKU: ${planInfo.access_type_sku}`); }
+		if (planInfo.assigned_date != null)                     { this.log(`  Assigned date: ${planInfo.assigned_date}`); }
+		if (planInfo.organization_list != null && Array.isArray(planInfo.organization_list)) {
+			this.log(`  Organizations: ${planInfo.organization_list.join(', ')}`);
+		}
+		if (planInfo.quota_reset_date_utc != null)              { this.log(`  Quota reset date (UTC): ${planInfo.quota_reset_date_utc}`); }
+		if (planInfo.quota_reset_date != null)                  { this.log(`  Quota reset date: ${planInfo.quota_reset_date}`); }
+		if (planInfo.token_based_billing != null)               { this.log(`  Token-based billing: ${planInfo.token_based_billing}`); }
+		if (planInfo.analytics_tracking_id != null)             { this.log(`  Analytics tracking ID: ${planInfo.analytics_tracking_id}`); }
+
+		// Log quota snapshots if present
+		if (planInfo.quota_snapshots && typeof planInfo.quota_snapshots === 'object') {
+			for (const [key, snapshot] of Object.entries(planInfo.quota_snapshots)) {
+				const qs = snapshot as any;
+				if (typeof qs === 'object' && qs !== null) {
+					const parts: string[] = [];
+					if (qs.quota_id != null)              parts.push(`id=${qs.quota_id}`);
+					if (qs.entitlement != null)          parts.push(`entitlement=${qs.entitlement}`);
+					if (qs.unlimited != null)            parts.push(`unlimited=${qs.unlimited}`);
+					if (qs.quota_remaining != null)      parts.push(`remaining=${qs.quota_remaining}`);
+					if (qs.percent_remaining != null)    parts.push(`${qs.percent_remaining}%`);
+					if (qs.overage_count != null)        parts.push(`overage=${qs.overage_count}`);
+					if (qs.quota_reset_at != null)       parts.push(`reset=${qs.quota_reset_at}`);
+					if (parts.length > 0) {
+						this.log(`  Quota (${key}): ${parts.join(', ')}`);
+					}
+				}
+			}
+		}
+
+		// Log legacy fields if present (for backwards compatibility)
+		if (planInfo.ide_chat != null)          { this.log(`  IDE chat: ${planInfo.ide_chat}`); }
+		if (planInfo.copilot_ide_agent != null) { this.log(`  Agent mode: ${planInfo.copilot_ide_agent}`); }
+		if (planInfo.public_code_suggestions != null) { this.log(`  Public code suggestions: ${planInfo.public_code_suggestions}`); }
+		if (planInfo.unlimited_pr_summaries != null)  { this.log(`  Unlimited PR summaries: ${planInfo.unlimited_pr_summaries}`); }
 	}
 
 	public async updateTokenStats(silent: boolean = false, skipIfBusy = false): Promise<DetailedStats | undefined> {

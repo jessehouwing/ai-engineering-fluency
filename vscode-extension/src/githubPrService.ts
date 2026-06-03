@@ -31,8 +31,39 @@ export type RepoPrStatsResult = {
 // Copilot plan info
 // ---------------------------------------------------------------------------
 
+export type QuotaSnapshot = {
+	quota_id?: string;
+	timestamp_utc?: string;
+	entitlement?: string;
+	quota_remaining?: number;
+	remaining?: number;
+	percent_remaining?: number;
+	unlimited?: boolean;
+	overage_permitted?: boolean;
+	overage_count?: number;
+	has_quota?: boolean;
+	quota_reset_at?: string;
+	token_based_billing?: boolean;
+};
+
 export type CopilotPlanInfo = {
+	login?: string;
 	copilot_plan?: string;             // e.g. "copilot_individual" | "copilot_business" | "copilot_enterprise" | "copilot_free"
+	chat_enabled?: boolean;
+	cli_enabled?: boolean;
+	is_mcp_enabled?: boolean;
+	editor_preview_features_enabled?: boolean;
+	copilotignore_enabled?: boolean;
+	restricted_telemetry?: boolean;
+	access_type_sku?: string;
+	assigned_date?: string;
+	organization_list?: string[];
+	quota_snapshots?: Record<string, QuotaSnapshot>;
+	quota_reset_date_utc?: string;
+	quota_reset_date?: string;
+	token_based_billing?: boolean;
+	analytics_tracking_id?: string;
+	// Legacy fields (may still be present)
 	public_code_suggestions?: string;  // "block" | "allow"
 	ide_chat?: string;                 // "enabled" | "disabled"
 	copilot_ide_agent?: string;        // "enabled" | "disabled"
