@@ -78,6 +78,7 @@ body {
 /* Tab styles */
 .tabs {
 	display: flex;
+	flex-wrap: wrap;
 	border-bottom: 1px solid var(--border-color);
 	margin-bottom: 16px;
 }
