@@ -490,6 +490,12 @@ background-position: center;
 	border: 1px solid #5b8cff;
 }
 
+.editor-badge-pi {
+background: #0d1117;
+color: #58a6ff;
+border: 1px solid #1f6feb;
+}
+
 .session-folders-table {
 	margin-top: 16px;
 	margin-bottom: 16px;
@@ -755,4 +761,5 @@ background-position: center;
 @keyframes spin {
 	to { transform: rotate(360deg); }
 }
+
 

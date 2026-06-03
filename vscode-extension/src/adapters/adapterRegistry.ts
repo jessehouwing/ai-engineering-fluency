@@ -23,6 +23,7 @@ import { ClaudeDesktopCoworkDataAccess } from '../claudedesktop';
 import { MistralVibeDataAccess } from '../mistralvibe';
 import { GeminiCliDataAccess } from '../geminicli';
 import { AntigravityDataAccess } from '../antigravity';
+import { PiDataAccess } from '../pi';
 
 import { OpenCodeAdapter } from './openCodeAdapter';
 import { CrushAdapter } from './crushAdapter';
@@ -33,6 +34,7 @@ import { ClaudeCodeAdapter } from './claudeCodeAdapter';
 import { MistralVibeAdapter } from './mistralVibeAdapter';
 import { GeminiCliAdapter } from './geminiCliAdapter';
 import { AntigravityAdapter } from './antigravityAdapter';
+import { PiAdapter } from './piAdapter';
 import { CopilotChatAdapter } from './copilotChatAdapter';
 import { CopilotCliAdapter } from './copilotCliAdapter';
 import { JetBrainsAdapter } from './jetbrainsAdapter';
@@ -48,6 +50,7 @@ claudeDesktopCowork: ClaudeDesktopCoworkDataAccess;
 mistralVibe: MistralVibeDataAccess;
 geminiCli: GeminiCliDataAccess;
 antigravity: AntigravityDataAccess;
+pi: PiDataAccess;
 /** Estimates token count from raw text for a given model. */
 estimateTokens: (text: string, model?: string) => number;
 /** Returns true when the tool name identifies an MCP server tool. */
@@ -83,6 +86,7 @@ claudeDesktopCowork: new ClaudeDesktopCoworkDataAccess(),
 mistralVibe: new MistralVibeDataAccess(),
 geminiCli: new GeminiCliDataAccess(),
 antigravity: new AntigravityDataAccess(),
+pi: new PiDataAccess(),
 };
 }
 
@@ -111,6 +115,7 @@ new MistralVibeAdapter(deps.mistralVibe),
 // it here explicitly to make the ordering intention clear.
 new AntigravityAdapter(deps.antigravity, deps.estimateTokens),
 new GeminiCliAdapter(deps.geminiCli),
+new PiAdapter(deps.pi),
 // Copilot Chat / CLI adapters: discovery-only. Their handles() returns
 // false so processSessionFile() falls through to the shared parser path
 // for VS Code Copilot Chat and CLI files. See issue #654.
@@ -119,3 +124,4 @@ new CopilotCliAdapter(),
 new JetBrainsAdapter(),
 ];
 }
+

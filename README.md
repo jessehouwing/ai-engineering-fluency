@@ -16,6 +16,7 @@ Track your GitHub Copilot token usage and AI Fluency across VS Code, Visual Stud
 - Continue
 - OpenCode
 - Crush
+- Pi CLI (pi.dev)
 - Claude Code (Anthropic)
 - Gemini CLI (Google)
 - Claude Desktop Cowork (Anthropic)
