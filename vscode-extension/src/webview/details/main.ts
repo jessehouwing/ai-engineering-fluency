@@ -749,6 +749,7 @@ const toolsTexts = [
 '🤖 Claude Code — Anthropic\'s CLI coding agent',
 '💎 Gemini CLI — Google\'s open-source CLI coding agent',
 '🚀 Antigravity — Google\'s Gemini-powered desktop IDE',
+'π Pi — Mistral-powered terminal coding agent',
 '💻 Copilot CLI — GitHub Copilot in the terminal',
 ];
 toolsTexts.forEach(text => {
@@ -768,7 +769,7 @@ steps.className = 'empty-state-steps';
 const stepTexts = [
 'Use any of the supported tools or editors listed above to interact with an AI model.',
 'For GitHub Copilot in VS Code: open the Copilot Chat panel (Ctrl+Alt+I / Cmd+Alt+I) and start a conversation.',
-'For terminal agents (Claude Code, Gemini CLI, Antigravity, OpenCode, Copilot CLI): run a coding session in your terminal.',
+'For terminal agents (Claude Code, Gemini CLI, Antigravity, Pi, OpenCode, Copilot CLI): run a coding session in your terminal.',
 'Click the 🔄 Refresh button above to reload the stats after your first session.',
 ];
 stepTexts.forEach(text => {

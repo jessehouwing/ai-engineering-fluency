@@ -2113,7 +2113,8 @@ class CopilotTokenTracker implements vscode.Disposable {
 			'VS Code Server': '☁️', 'VS Code Server (Insiders)': '☁️', 'VSCodium': '🔷',
 			'Cursor': '⚡', 'Copilot CLI': '🤖', 'OpenCode': '🟢', 'Visual Studio': '🪟',
 			'Claude Code': '🟠', 'Claude Desktop Cowork': '🟠', 'Mistral Vibe': '🔥',
-			'Gemini CLI': '💎', 'Antigravity': '🚀',
+			'Gemini CLI': '💎', 'Antigravity': '🚀', 'JetBrains': '🧩',
+			'Crush': '🦾', 'Continue': '▶️', 'Pi': 'π',
 		};
 		return map[editorName] ?? '📝';
 	}

@@ -42,6 +42,7 @@ export type EditorName =
 	| 'JetBrains'
 	| 'Crush'
 	| 'Continue'
+	| 'Pi'
 	| 'Unknown';
 
 /**
@@ -69,6 +70,7 @@ export const EDITOR_ICON_MAP: Record<EditorName, string> = {
 	'JetBrains': '🧩',
 	'Crush': '🦾',
 	'Continue': '▶️',
+	'Pi': 'π',
 	'Unknown': '❓'
 };
 

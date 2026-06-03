@@ -460,6 +460,22 @@ function isVSCodeRoot(lower: string): boolean {
 }
 
 /**
+ * Detect non-VS-Code terminal/CLI tools from a lower-cased normalised root path.
+ * Returns the editor name or undefined if none matched.
+ * @internal
+ */
+function detectToolEditorFromRootPath(lower: string): string | undefined {
+	if (lower.includes('opencode')) { return 'OpenCode'; }
+	if (lower.includes('.continue')) { return 'Continue'; }
+	if (lower.includes('.vibe')) { return 'Mistral Vibe'; }
+	// Antigravity must be checked before generic .gemini (both live under ~/.gemini/).
+	if (lower.includes('.gemini/antigravity')) { return 'Antigravity'; }
+	if (lower.includes('.gemini')) { return 'Gemini CLI'; }
+	if (lower.includes('.pi/agent')) { return 'Pi'; }
+	return undefined;
+}
+
+/**
  * Determine a friendly editor name from an editor root path (folder name)
  * e.g. 'C:\\...\\AppData\\Roaming\\Code' -> 'VS Code'
  */
@@ -469,12 +485,8 @@ export function getEditorNameFromRoot(rootPath: string): string {
 	// Check obvious markers first (JetBrains must precede Copilot CLI)
 	if (isJetBrainsRoot(lower)) { return 'JetBrains'; }
 	if (isCopilotCliRoot(lower)) { return 'Copilot CLI'; }
-	if (lower.includes('opencode')) { return 'OpenCode'; }
-	if (lower.includes('.continue')) { return 'Continue'; }
-	if (lower.includes('.vibe')) { return 'Mistral Vibe'; }
-	// Antigravity must be checked before generic .gemini (both live under ~/.gemini/).
-	if (lower.includes('.gemini/antigravity')) { return 'Antigravity'; }
-	if (lower.includes('.gemini')) { return 'Gemini CLI'; }
+	const toolEditor = detectToolEditorFromRootPath(lower);
+	if (toolEditor) { return toolEditor; }
 	if (isCodeInsidersRoot(lower)) { return 'VS Code Insiders'; }
 	if (isCodeExplorationRoot(lower)) { return 'VS Code Exploration'; }
 	if (lower.includes('vscodium')) { return 'VSCodium'; }
@@ -876,6 +888,7 @@ function detectToolEditorFromPath(
 	if (lowerPath.includes('/.copilot/session-state/')) { return 'Copilot CLI'; }
 	if (isOpenCodeSessionFile?.(filePath)) { return 'OpenCode'; }
 	if (lowerPath.includes('/.crush/crush.db#')) { return 'Crush'; }
+	if (lowerPath.includes('/.pi/agent/sessions/')) { return 'Pi'; }
 	if (lowerPath.includes('/.continue/sessions/')) { return 'Continue'; }
 	if (lowerPath.includes('/local-agent-mode-sessions/')) { return 'Claude Desktop Cowork'; }
 	if (lowerPath.includes('/.claude/projects/')) { return 'Claude Code'; }
@@ -937,23 +950,14 @@ function detectIDEEditorSource(lowerPath: string): string | undefined {
 }
 
 /**
- * Detect which editor the session file belongs to based on its path.
+ * Determine which editor the session file belongs to based on its path.
  */
 export function detectEditorSource(filePath: string, isOpenCodeSessionFile?: (p: string) => boolean): string {
 	const lowerPath = normalizePathForComparison(filePath);
 	if (lowerPath.startsWith('windsurf://')) { return 'Windsurf'; }
-	if (lowerPath.includes('/.copilot/jb/')) { return 'JetBrains'; }
-	if (lowerPath.includes('/.copilot/session-state/')) { return 'Copilot CLI'; }
-	if (lowerPath.includes('/.copilot/session-store.db#')) { return 'Copilot CLI'; }
-	if (isOpenCodeSessionFile?.(filePath)) { return 'OpenCode'; }
-	if (lowerPath.includes('/.crush/crush.db#')) { return 'Crush'; }
-	if (lowerPath.includes('/.continue/sessions/')) { return 'Continue'; }
-	if (lowerPath.includes('/local-agent-mode-sessions/')) { return 'Claude Desktop Cowork'; }
-	if (lowerPath.includes('/.claude/projects/')) { return 'Claude Code'; }
-	if (lowerPath.includes('/.vibe/logs/session/')) { return 'Mistral Vibe'; }
-	// Antigravity must be checked before Gemini CLI (both live under ~/.gemini/).
-	if (lowerPath.includes('/.gemini/antigravity/brain/')) { return 'Antigravity'; }
-	if (isGeminiCliPath(lowerPath)) { return 'Gemini CLI'; }
-	return detectIDEEditorSource(lowerPath) ?? 'Unknown';
+	// Delegate to the shared tool-editor detector (handles JetBrains, Copilot CLI, OpenCode,
+	// Crush, Pi, Continue, Claude, Vibe, Antigravity, Gemini CLI).
+	return detectToolEditorFromPath(filePath, lowerPath, isOpenCodeSessionFile) ??
+		detectIDEEditorSource(lowerPath) ?? 'Unknown';
 }
 
