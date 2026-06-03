@@ -73,6 +73,8 @@
     "pixtral-large-2411": 0.25,
     "gemini-3.5-flash": 0.25,
     "claude-opus-4.8": 0.24,
-    "qwen2.5": 0.25
+    "qwen2.5": 0.25,
+    "mai-code-1-flash[^mai-code-1-flash]": 0.25,
+    "mai-code-1-flash": 0.25
   }
 }
