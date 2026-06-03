@@ -804,4 +804,8 @@
   ,"mcp_github_mcp_se_search_issues": "GitHub MCP (Remote): Search Issues"
   ,"mcp_github_search_users": "GitHub MCP (Remote): Search Users"
   ,"mcp_github_semantic_issue_similarity_search": "GitHub MCP (Remote): Semantic Issue Similarity Search"
+  ,"mcp_com_microsoft_get_azure_bestpractices": "Microsoft Docs MCP: Get Azure Best Practices"
+  ,"mcp_github_enterp_create_branch": "GitHub MCP (Remote): Create Branch"
+  ,"mcp_github_enterp_get_latest_release": "GitHub MCP (Remote): Get Latest Release"
+  ,"mcp_github_enterp_pull_request_read": "GitHub MCP (Remote): Pull Request Read"
 }
