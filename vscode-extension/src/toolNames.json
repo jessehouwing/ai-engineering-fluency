@@ -804,6 +804,7 @@
   ,"mcp_github_mcp_se_search_issues": "GitHub MCP (Remote): Search Issues"
   ,"mcp_github_search_users": "GitHub MCP (Remote): Search Users"
   ,"mcp_github_semantic_issue_similarity_search": "GitHub MCP (Remote): Semantic Issue Similarity Search"
+  ,"glob_search": "Glob Search"
   ,"azure-devops_core_list_projects": "Azure DevOps Core List Projects"
   ,"azure-devops_repo_get_file_content": "Azure DevOps Repo Get File Content"
   ,"azure-devops_repo_list_repos_by_project": "Azure DevOps Repo List Repos By Project"
