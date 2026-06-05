@@ -1684,73 +1684,83 @@ function sanitizeNumericRecord(input: unknown): Record<string, number> {
   );
 }
 
+function numField(v: unknown): number { return Number(v ?? 0) || 0; }
+function optStr(v: unknown): string | undefined { return v === null || v === undefined ? undefined : String(v); }
+function nullStr(v: unknown): string | null { return v === null || v === undefined ? null : String(v); }
+
+function sanitizeContextReferences(contextRefs: Record<string, unknown>) {
+  return {
+    file: numField(contextRefs.file),
+    symbol: numField(contextRefs.symbol),
+    selection: numField(contextRefs.selection),
+    implicitSelection: numField(contextRefs.implicitSelection),
+    codebase: numField(contextRefs.codebase),
+    workspace: numField(contextRefs.workspace),
+    terminal: numField(contextRefs.terminal),
+    vscode: numField(contextRefs.vscode),
+    terminalLastCommand: numField(contextRefs.terminalLastCommand),
+    terminalSelection: numField(contextRefs.terminalSelection),
+    clipboard: numField(contextRefs.clipboard),
+    changes: numField(contextRefs.changes),
+    outputPanel: numField(contextRefs.outputPanel),
+    problemsPanel: numField(contextRefs.problemsPanel),
+    pullRequest: numField(contextRefs.pullRequest),
+    byKind: sanitizeNumericRecord(contextRefs.byKind),
+    copilotInstructions: numField(contextRefs.copilotInstructions),
+    agentsMd: numField(contextRefs.agentsMd),
+    byPath: sanitizeNumericRecord(contextRefs.byPath),
+  };
+}
+
+function sanitizeChildInfo(sf: Record<string, unknown>) {
+  if (!Array.isArray(sf.childInfo)) { return undefined; }
+  return sf.childInfo
+    .filter((child): child is Record<string, unknown> => !!child && typeof child === "object")
+    .map((child) => ({
+      uuid: String(child.uuid ?? ""),
+      name: String(child.name ?? ""),
+      sessionFile: optStr(child.sessionFile),
+    }));
+}
+
+function sanitizeParentInfo(sf: Record<string, unknown>) {
+  if (!sf.parentInfo || typeof sf.parentInfo !== "object") { return undefined; }
+  const p = sf.parentInfo as Record<string, unknown>;
+  return {
+    uuid: String(p.uuid ?? ""),
+    name: String(p.name ?? ""),
+    sessionFile: optStr(p.sessionFile),
+  };
+}
+
+function sanitizeSessionFileItem(item: unknown): SessionFileDetails {
+  const sf = (item ?? {}) as Record<string, unknown>;
+  const contextRefs = (sf.contextReferences ?? {}) as Record<string, unknown>;
+  return {
+    file: String(sf.file ?? sf.sessionFile ?? ""),
+    editorSource: String(sf.editorSource ?? ""),
+    editorRoot: optStr(sf.editorRoot),
+    editorName: optStr(sf.editorName),
+    title: optStr(sf.title),
+    repository: optStr(sf.repository),
+    size: numField(sf.size),
+    modified: String(sf.modified ?? ""),
+    tokens: numField(sf.tokens),
+    interactions: numField(sf.interactions),
+    firstInteraction: nullStr(sf.firstInteraction),
+    lastInteraction: nullStr(sf.lastInteraction),
+    contextReferences: sanitizeContextReferences(contextRefs),
+    parentInfo: sanitizeParentInfo(sf),
+    childInfo: sanitizeChildInfo(sf),
+    totalChildCount: sf.totalChildCount === null || sf.totalChildCount === undefined ? undefined : Number(sf.totalChildCount),
+  } as SessionFileDetails;
+}
+
 function sanitizeDetailedSessionFiles(input: unknown): SessionFileDetails[] {
   if (!Array.isArray(input)) {
     return [];
   }
-
-  return input.map((item) => {
-    const sf = (item ?? {}) as Record<string, unknown>;
-    const contextRefs = (sf.contextReferences ?? {}) as Record<string, unknown>;
-    const parentInfo = sf.parentInfo && typeof sf.parentInfo === "object"
-      ? (sf.parentInfo as Record<string, unknown>)
-      : undefined;
-
-    const childInfo = Array.isArray(sf.childInfo)
-      ? sf.childInfo
-        .filter((child): child is Record<string, unknown> => !!child && typeof child === "object")
-        .map((child) => ({
-          uuid: String(child.uuid ?? ""),
-          name: String(child.name ?? ""),
-          sessionFile: child.sessionFile == null ? undefined : String(child.sessionFile),
-        }))
-      : undefined;
-
-    return {
-      file: String(sf.file ?? sf.sessionFile ?? ""),
-      editorSource: String(sf.editorSource ?? ""),
-      editorRoot: sf.editorRoot == null ? undefined : String(sf.editorRoot),
-      editorName: sf.editorName == null ? undefined : String(sf.editorName),
-      title: sf.title == null ? undefined : String(sf.title),
-      repository: sf.repository == null ? undefined : String(sf.repository),
-      size: Number(sf.size ?? 0) || 0,
-      modified: String(sf.modified ?? ""),
-      tokens: Number(sf.tokens ?? 0) || 0,
-      interactions: Number(sf.interactions ?? 0) || 0,
-      firstInteraction: sf.firstInteraction == null ? null : String(sf.firstInteraction),
-      lastInteraction: sf.lastInteraction == null ? null : String(sf.lastInteraction),
-      contextReferences: {
-        file: Number(contextRefs.file ?? 0) || 0,
-        symbol: Number(contextRefs.symbol ?? 0) || 0,
-        selection: Number(contextRefs.selection ?? 0) || 0,
-        implicitSelection: Number(contextRefs.implicitSelection ?? 0) || 0,
-        codebase: Number(contextRefs.codebase ?? 0) || 0,
-        workspace: Number(contextRefs.workspace ?? 0) || 0,
-        terminal: Number(contextRefs.terminal ?? 0) || 0,
-        vscode: Number(contextRefs.vscode ?? 0) || 0,
-        terminalLastCommand: Number(contextRefs.terminalLastCommand ?? 0) || 0,
-        terminalSelection: Number(contextRefs.terminalSelection ?? 0) || 0,
-        clipboard: Number(contextRefs.clipboard ?? 0) || 0,
-        changes: Number(contextRefs.changes ?? 0) || 0,
-        outputPanel: Number(contextRefs.outputPanel ?? 0) || 0,
-        problemsPanel: Number(contextRefs.problemsPanel ?? 0) || 0,
-        pullRequest: Number(contextRefs.pullRequest ?? 0) || 0,
-        byKind: sanitizeNumericRecord(contextRefs.byKind),
-        copilotInstructions: Number(contextRefs.copilotInstructions ?? 0) || 0,
-        agentsMd: Number(contextRefs.agentsMd ?? 0) || 0,
-        byPath: sanitizeNumericRecord(contextRefs.byPath),
-      },
-      parentInfo: parentInfo
-        ? {
-            uuid: String(parentInfo.uuid ?? ""),
-            name: String(parentInfo.name ?? ""),
-            sessionFile: parentInfo.sessionFile == null ? undefined : String(parentInfo.sessionFile),
-          }
-        : undefined,
-      childInfo,
-      totalChildCount: sf.totalChildCount == null ? undefined : Number(sf.totalChildCount),
-    } as SessionFileDetails;
-  });
+  return input.map(sanitizeSessionFileItem);
 }
 
 function handleSessionFilesLoaded(message: DiagMessage): void {
@@ -1933,6 +1943,26 @@ function sel(current: string, value: string): string {
   return current === value ? 'selected' : '';
 }
 
+function renderQuotaCardHtml(data: DiagnosticsData): string {
+  const quotaContent = data.quotaEntitlements
+    ? `<p>
+${
+      data.quotaEntitlements.premium_interactions
+        ? `<strong>Premium Interactions:</strong> $${data.quotaEntitlements.premium_interactions.toFixed(2)}/month<br/>`
+        : ''
+}${
+      data.quotaEntitlements.completions
+        ? `<strong>Completions:</strong> $${data.quotaEntitlements.completions.toFixed(2)}/month<br/>`
+        : ''
+}
+    </p>`
+    : `<p class="hint">No quota information available from the API yet. Sign out and back in to refresh.</p>`;
+  return `<div class="backend-card">
+<h4>📊 API Quota Information</h4>
+${quotaContent}
+</div>`;
+}
+
 function renderDiagDisplayTabHtml(data: DiagnosticsData): string {
   const showTokens = data.displaySettings?.showTokens ?? 'both';
   const showCost = data.displaySettings?.showCost ?? 'none';
@@ -1990,24 +2020,7 @@ ${
     : ''
 }
 </div>
-<div class="backend-card">
-<h4>📊 API Quota Information</h4>
-${
-  data.quotaEntitlements
-    ? `<p>
-${
-      data.quotaEntitlements.premium_interactions
-        ? `<strong>Premium Interactions:</strong> $${data.quotaEntitlements.premium_interactions.toFixed(2)}/month<br/>`
-        : ''
-}${
-      data.quotaEntitlements.completions
-        ? `<strong>Completions:</strong> $${data.quotaEntitlements.completions.toFixed(2)}/month<br/>`
-        : ''
-}
-    </p>`
-    : `<p class="hint">No quota information available from the API yet. Sign out and back in to refresh.</p>`
-}
-</div>
+${renderQuotaCardHtml(data)}
 <div class="backend-card">
 <h4>🔢 Number Formatting</h4>
 <p>
