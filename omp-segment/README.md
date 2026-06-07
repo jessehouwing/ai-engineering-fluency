@@ -5,7 +5,7 @@ Display your AI token usage (today and last 30 days) directly in your terminal p
 Example output in your prompt:
 
 ```
- 󱊤 1.2K today · 45.3K 30d 
+ 󱊤 1.2K today · 4.5K month · 45.3K 30d 
 ```
 
 The segment reads **local session files** on your machine — no internet connection or API token required. It tracks tokens from VS Code Copilot Chat, Claude Code, Gemini CLI, OpenCode, and [all other supported editors](../cli/README.md).
@@ -42,7 +42,7 @@ Verify it works:
 
 ```powershell
 ai-engineering-fluency segment
-# e.g.: 1.2K today · 45.3K 30d
+# e.g.: 1.2K today · 4.5K month · 45.3K 30d
 ```
 
 > **Note:** If you use `npx` instead of a global install, replace `"ai-engineering-fluency"` with `"npx"` and add `"-y"`, `"@rajbos/ai-engineering-fluency"` as additional arguments in the `cmd` call below. `npx` is significantly slower due to package resolution on first run.
@@ -134,11 +134,11 @@ Save the file.
   "trailing_diamond": "\ue0b4",
   "foreground": "#ffffff",
   "background": "#005ca5",
-  "template": " \uec1e {{ .Env.COPILOT_TOKENS_TODAY }} today · {{ .Env.COPILOT_TOKENS_30D }} 30d "
+  "template": " \uec1e {{ .Env.COPILOT_TOKENS_TODAY }} today · {{ .Env.COPILOT_TOKENS_MONTH }} month · {{ .Env.COPILOT_TOKENS_30D }} 30d "
 }
 ```
 
-The hook updates `$env:COPILOT_TOKENS_TODAY` and `$env:COPILOT_TOKENS_30D` at most once every 5 minutes.
+The hook updates `$env:COPILOT_TOKENS_TODAY`, `$env:COPILOT_TOKENS_MONTH`, and `$env:COPILOT_TOKENS_30D` at most once every 5 minutes.
 
 ---
 
@@ -268,9 +268,9 @@ oh-my-posh init pwsh --config "$env:TEMP\test.omp.json" | Invoke-Expression
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Command not found: `ai-engineering-fluency` | CLI not installed globally | `npm install -g @rajbos/ai-engineering-fluency` |
-| Segment shows `0 today · 0 30d` | No session files found | Run `ai-engineering-fluency diagnostics` to check paths |
+| Segment shows `0 today · 0 month · 0 30d` | No session files found | Run `ai-engineering-fluency diagnostics` to check paths |
 | Segment shows `invalid template text` | `{{ cmd }}` not supported in your OMP version | Switch to [Method 2](#method-2-powershell-pre-prompt-hook--recommended) |
-| Segment shows `today · 30d` without values | `Set-PoshContext` not called before first render | Add `Set-PoshContext` call at end of `$PROFILE` after the function definition |
+| Segment shows `today · month · 30d` without values | `Set-PoshContext` not called before first render | Add `Set-PoshContext` call at end of `$PROFILE` after the function definition |
 | Segment never updates | OMP cache too long | Set `cache.duration` to `"1m"` or use `--hide-zero` |
 | Stale numbers | CLI cache still valid | Run `ai-engineering-fluency segment --refresh` |
 | Prompt shows stale data even after refresh | OMP `cache` block on a Method 2 env var segment | **Remove** the `"cache"` block from the env var segment — OMP caches the rendered string, bypassing env var updates from `Set-PoshContext` |
@@ -296,7 +296,7 @@ GitHub Copilot CLI has an experimental `STATUS_LINE` feature that calls a local 
 Example statusline:
 
 ```
-main +2/-1 > ctx 123.5k/200.0k > ######.... > 00:12:34 > +42/-8 > 12.9M today · 1443.5M 30d
+main +2/-1 > ctx 123.5k/200.0k > ######.... > 00:12:34 > +42/-8 > 12.9M today · 45.3M month · 1443.5M 30d
 ```
 
 ### Files
@@ -380,7 +380,7 @@ Pipe a sample JSON payload directly to the command to verify output before wirin
 Expected output (appearance depends on your Nerd Font):
 
 ```
-main +2/-1 > ctx 123.5k/200.0k > ######.... > 00:12:34 > +42/-8 > 12.9M today · 1443.5M 30d
+main +2/-1 > ctx 123.5k/200.0k > ######.... > 00:12:34 > +42/-8 > 12.9M today · 45.3M month · 1443.5M 30d
 ```
 
 ### Customising the Theme
@@ -450,12 +450,12 @@ Claude Code pipes this structure to stdin on each status refresh:
 No external tools required — pure PowerShell with ANSI truecolor output. Renders two lines:
 
 ```
-claude-sonnet-4-6  ██████░░░░ 123.5k/200.0k 62%  00:12:34  +42/-8  $0.42
-███░░░░░ 38% 5h resets 2h59m  |  ███████░░ 72% 7d resets 3d0h  |  12.9M today · 1.4B 30d
+claude-sonnet-4-6  ██████░░░░ ctx: 123.5k/200.0k 62%  time: 00:12:34  lines: +42/-8  cost: $0.42
+5h-limit: ███░░░░░ 38% resets 2h59m  |  7d-limit: ███████░░ 72% resets 3d0h  |  tokens: 12.9M today · 45.3M month · 1.4B 30d
 ```
 
-- **Line 1:** model name · color-coded context bar (green → yellow → red) · token counts · duration · line changes · cost
-- **Line 2:** 5-hour and 7-day rate limit bars with reset countdowns · `ai-engineering-fluency` daily totals
+- **Line 1:** model name · color-coded context bar (green → yellow → red) · `ctx:` token counts · `time:` session duration · `lines:` code changes · `cost:` session cost
+- **Line 2:** `5h-limit:` and `7d-limit:` rate limit bars with reset countdowns · `tokens:` `ai-engineering-fluency` daily totals
 
 Rate limit bars only appear when Claude Code provides that data (Claude.ai Pro/Max plans).
 
@@ -529,7 +529,7 @@ Uses oh-my-posh's powerline rendering for a styled, multi-segment bar. Falls bac
 Example output (with Nerd Font):
 
 ```
-claude-sonnet-4-6 > ctx 123.5k/200.0k > ######.... > 00:12:34 > +42/-8 > $0.42 > 12.9M today · 1.4B 30d
+claude-sonnet-4-6 > ctx: 123.5k/200.0k > ######.... > time: 00:12:34 > lines: +42/-8 > cost: $0.42 > tokens: 12.9M today · 45.3M month · 1.4B 30d
 ```
 
 #### Files
@@ -597,7 +597,7 @@ Restart Claude Code (or run `/reload`) to activate.
 | `CLAUDE_STATUS_DURATION` | `HH:MM:SS` | `00:12:34` |
 | `CLAUDE_STATUS_CHANGES` | `+added/-removed` or empty | `+42/-8` |
 | `CLAUDE_STATUS_COST` | Cost in USD or empty | `$0.42` |
-| `COPILOT_TOKEN_USAGE` | Output of `ai-engineering-fluency segment` | `12.9M today · 1.4B 30d` |
+| `COPILOT_TOKEN_USAGE` | Output of `ai-engineering-fluency segment` | `12.9M today · 45.3M month · 1.4B 30d` |
 
 #### Customising the Theme
 

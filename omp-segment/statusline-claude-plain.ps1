@@ -66,13 +66,15 @@ $sevenPct  = if ($null -ne $rl.seven_day.used_percentage) { [double]$rl.seven_da
 $sevenReset = $rl.seven_day.resets_at
 
 # ── Line 1: model · context ──────────────────────────────────────────────────
+$dim        = { param($t) fg 140 140 140 $t }
+
 $modelStr   = bold (fg 217 119 87 $model)
-$ctxStr     = "$(Format-TokenCount $tokens)/$(Format-TokenCount $limit)"
+$ctxStr     = "$(& $dim 'ctx:') $(Format-TokenCount $tokens)/$(Format-TokenCount $limit)"
 $pctStr     = if ($null -ne $pct) { " $(fg 180 180 180 ('{0:0}%' -f $pct))" } else { '' }
 $bar        = New-Bar $pct
-$durationStr = fg 100 160 220 (Format-Duration $duration)
-$changes    = if ($added -or $removed) { "  $(fg 160 200 120 "+$added")$(fg 220 100 100 "/-$removed")" } else { '' }
-$costStr    = if ($costUsd) { "  $(fg 200 180 100 $costUsd)" } else { '' }
+$durationStr = "$(& $dim 'time:') $(fg 100 160 220 (Format-Duration $duration))"
+$changes    = if ($added -or $removed) { "  $(& $dim 'lines:') $(fg 160 200 120 "+$added")$(fg 220 100 100 "/-$removed")" } else { '' }
+$costStr    = if ($costUsd) { "  $(& $dim 'cost:') $(fg 200 180 100 $costUsd)" } else { '' }
 
 Write-Host "$modelStr  $bar $ctxStr$pctStr  $durationStr$changes$costStr"
 
@@ -80,19 +82,19 @@ Write-Host "$modelStr  $bar $ctxStr$pctStr  $durationStr$changes$costStr"
 $parts = @()
 if ($null -ne $fivePct) {
     $reset5 = Format-Countdown $fiveReset
-    $label  = if ($reset5) { "5h $(fg 140 140 140 "resets $reset5")" } else { '5h' }
-    $parts += "$(New-Bar $fivePct 8) $(fg 180 180 180 ('{0:0}%' -f $fivePct)) $label"
+    $label  = if ($reset5) { "$(& $dim "resets $reset5")" } else { '' }
+    $parts += "$(& $dim '5h-limit:') $(New-Bar $fivePct 8) $(fg 180 180 180 ('{0:0}%' -f $fivePct)) $label"
 }
 if ($null -ne $sevenPct) {
     $reset7 = Format-Countdown $sevenReset
-    $label  = if ($reset7) { "7d $(fg 140 140 140 "resets $reset7")" } else { '7d' }
-    $parts += "$(New-Bar $sevenPct 8) $(fg 180 180 180 ('{0:0}%' -f $sevenPct)) $label"
+    $label  = if ($reset7) { "$(& $dim "resets $reset7")" } else { '' }
+    $parts += "$(& $dim '7d-limit:') $(New-Bar $sevenPct 8) $(fg 180 180 180 ('{0:0}%' -f $sevenPct)) $label"
 }
 
 # ── Token totals from ai-engineering-fluency ──────────────────────────────────
 try {
     $tok = & ai-engineering-fluency segment 2>$null
-    if ($tok) { $parts += fg 100 150 210 $tok.Trim() }
+    if ($tok) { $parts += "$(& $dim 'tokens:') $(fg 100 150 210 $tok.Trim())" }
 } catch {}
 
 if ($parts.Count) { Write-Host ($parts -join "  $(fg 80 80 80 '|')  ") }
