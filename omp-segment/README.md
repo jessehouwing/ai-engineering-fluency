@@ -412,6 +412,220 @@ $tokenOutput = & ai-engineering-fluency segment --ttl 2 2>$null   # refresh ever
 
 ---
 
+## Claude Code CLI Statusline
+
+Claude Code CLI has a native `statusLine` feature that pipes session JSON to a local command and renders its output at the bottom of the Claude Code terminal UI. This folder includes ready-to-use scripts that combine Claude Code session data (model name, context tokens, cost, duration, line changes) with your total daily / 30-day token usage from `ai-engineering-fluency`.
+
+Two variants are available — pick the one that fits your setup:
+
+| Variant | Files | Requirement |
+|---|---|---|
+| **Plain PowerShell** | `statusline-claude-plain.*` | None beyond `pwsh` |
+| **oh-my-posh** | `statusline-claude.*` | oh-my-posh on PATH |
+
+### JSON Fields from Claude Code
+
+Claude Code pipes this structure to stdin on each status refresh:
+
+| Field | Description |
+|---|---|
+| `model.display_name` | Current model name (e.g. `claude-sonnet-4-6`) |
+| `context_window.total_input_tokens` | Current input tokens used |
+| `context_window.context_window_size` | Max context window (default 200 000) |
+| `context_window.used_percentage` | Pre-calculated percentage used |
+| `cost.total_cost_usd` | Estimated session cost in USD |
+| `cost.total_duration_ms` | Total wall-clock time since session start |
+| `cost.total_lines_added` / `total_lines_removed` | Code changes this session |
+| `rate_limits.five_hour.used_percentage` | 5-hour rolling window usage (Claude.ai plans only) |
+| `rate_limits.five_hour.resets_at` | Unix timestamp when the 5-hour window resets |
+| `rate_limits.seven_day.used_percentage` | 7-day rolling window usage (Claude.ai plans only) |
+| `rate_limits.seven_day.resets_at` | Unix timestamp when the 7-day window resets |
+
+---
+
+### Option A: Plain PowerShell (no oh-my-posh)
+
+> **Credit:** Approach inspired by [Andrew Connell's guide](https://www.voitanos.io/blog/claude-code-cli-statusline/).
+
+No external tools required — pure PowerShell with ANSI truecolor output. Renders two lines:
+
+```
+claude-sonnet-4-6  ██████░░░░ 123.5k/200.0k 62%  00:12:34  +42/-8  $0.42
+███░░░░░ 38% 5h resets 2h59m  |  ███████░░ 72% 7d resets 3d0h  |  12.9M today · 1.4B 30d
+```
+
+- **Line 1:** model name · color-coded context bar (green → yellow → red) · token counts · duration · line changes · cost
+- **Line 2:** 5-hour and 7-day rate limit bars with reset countdowns · `ai-engineering-fluency` daily totals
+
+Rate limit bars only appear when Claude Code provides that data (Claude.ai Pro/Max plans).
+
+#### Files
+
+| File | Purpose |
+|---|---|
+| [`statusline-claude-plain.cmd`](./statusline-claude-plain.cmd) | Windows wrapper |
+| [`statusline-claude-plain.ps1`](./statusline-claude-plain.ps1) | Pure-PowerShell renderer — no oh-my-posh dependency |
+
+#### Requirements
+
+- **Claude Code CLI** — `npm install -g @anthropic-ai/claude-code`
+- **PowerShell 7+** (`pwsh`) — included with Windows 11; `pwsh --version` to confirm
+
+#### Setup
+
+Add the `statusLine` key to `%USERPROFILE%\.claude\settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "C:\\Users\\YOURUSER\\path\\to\\ai-engineering-fluency\\omp-segment\\statusline-claude-plain.cmd"
+  }
+}
+```
+
+Restart Claude Code (or run `/reload`) to activate.
+
+#### Test Without Claude Code
+
+```powershell
+@'
+{
+  "model": { "id": "claude-sonnet-4-6", "display_name": "claude-sonnet-4-6" },
+  "cwd": "C:\\src\\my-repo",
+  "context_window": {
+    "total_input_tokens": 123456,
+    "context_window_size": 200000,
+    "used_percentage": 61.7
+  },
+  "cost": {
+    "total_cost_usd": 0.42,
+    "total_duration_ms": 754000,
+    "total_lines_added": 42,
+    "total_lines_removed": 8
+  },
+  "rate_limits": {
+    "five_hour":  { "used_percentage": 38, "resets_at": 1749340800 },
+    "seven_day":  { "used_percentage": 72, "resets_at": 1749600000 }
+  }
+}
+'@ | & "path\to\ai-engineering-fluency\omp-segment\statusline-claude-plain.cmd"
+```
+
+#### Customising
+
+Open `statusline-claude-plain.ps1` to adjust:
+
+- **Bar width** — change the `$Width = 10` default in `New-Bar`
+- **Color thresholds** — the `if ($bounded -lt 60)` / `if ($bounded -lt 80)` breakpoints in `New-Bar`
+- **Line layout** — edit the `Write-Host` calls at the bottom of the script
+
+---
+
+### Option B: oh-my-posh (rich theme)
+
+Uses oh-my-posh's powerline rendering for a styled, multi-segment bar. Falls back to the same plain-text output as Option A when oh-my-posh is not found.
+
+Example output (with Nerd Font):
+
+```
+claude-sonnet-4-6 > ctx 123.5k/200.0k > ######.... > 00:12:34 > +42/-8 > $0.42 > 12.9M today · 1.4B 30d
+```
+
+#### Files
+
+| File | Purpose |
+|---|---|
+| [`statusline-claude.cmd`](./statusline-claude.cmd) | Windows wrapper |
+| [`statusline-claude.ps1`](./statusline-claude.ps1) | Sets env vars, calls `ai-engineering-fluency segment`, renders via oh-my-posh |
+| [`statusline-claude.omp.json`](./statusline-claude.omp.json) | Compact oh-my-posh theme — model name, context gauge, duration, changes, cost, token totals |
+
+#### Requirements
+
+In addition to the [prerequisites above](#prerequisites):
+
+- **Claude Code CLI** — `npm install -g @anthropic-ai/claude-code`
+- **oh-my-posh** available on `PATH` (`oh-my-posh version` should return output)
+
+#### Setup
+
+Add the `statusLine` key to `%USERPROFILE%\.claude\settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "C:\\Users\\YOURUSER\\path\\to\\ai-engineering-fluency\\omp-segment\\statusline-claude.cmd"
+  }
+}
+```
+
+Restart Claude Code (or run `/reload`) to activate.
+
+#### Test Without Claude Code
+
+```powershell
+@'
+{
+  "model": {
+    "id": "claude-sonnet-4-6",
+    "display_name": "claude-sonnet-4-6"
+  },
+  "cwd": "C:\\src\\my-repo",
+  "context_window": {
+    "total_input_tokens": 123456,
+    "context_window_size": 200000,
+    "used_percentage": 61.7
+  },
+  "cost": {
+    "total_cost_usd": 0.42,
+    "total_duration_ms": 754000,
+    "total_lines_added": 42,
+    "total_lines_removed": 8
+  }
+}
+'@ | & "path\to\ai-engineering-fluency\omp-segment\statusline-claude.cmd"
+```
+
+#### Environment Variables Set by the Script
+
+| Variable | Value | Example |
+|---|---|---|
+| `CLAUDE_STATUS_MODEL` | Model display name | `claude-sonnet-4-6` |
+| `CLAUDE_STATUS_CONTEXT` | `used/limit` formatted | `123.5k/200.0k` |
+| `CLAUDE_STATUS_GAUGE` | 10-char ASCII gauge | `######....` |
+| `CLAUDE_STATUS_DURATION` | `HH:MM:SS` | `00:12:34` |
+| `CLAUDE_STATUS_CHANGES` | `+added/-removed` or empty | `+42/-8` |
+| `CLAUDE_STATUS_COST` | Cost in USD or empty | `$0.42` |
+| `COPILOT_TOKEN_USAGE` | Output of `ai-engineering-fluency segment` | `12.9M today · 1.4B 30d` |
+
+#### Customising the Theme
+
+Open `statusline-claude.omp.json` to adjust colours, icons, or segments.
+
+To use Nerd Font glyphs instead of plain ASCII separators, replace the diamond and powerline values:
+
+```json
+"leading_diamond": "",
+"trailing_diamond": "",
+"powerline_symbol": ""
+```
+
+---
+
+### Differences vs Copilot CLI Statusline
+
+| Aspect | Copilot CLI | Claude Code |
+|---|---|---|
+| Context tokens field | `context_window.current_context_tokens` | `context_window.total_input_tokens` |
+| Context limit field | `context_window.displayed_context_limit` | `context_window.context_window_size` |
+| Percentage field | `context_window.current_context_used_percentage` | `context_window.used_percentage` |
+| Extra fields | git info via oh-my-posh | `model.display_name`, `cost.total_cost_usd` |
+| Settings file | `%USERPROFILE%\.copilot\settings.json` | `%USERPROFILE%\.claude\settings.json` |
+| Feature flag needed | Yes (`STATUS_LINE`) | No — `statusLine` is stable |
+
+---
+
 ## Related
 
 - [AI Engineering Fluency CLI docs](../docs/cli/README.md)
