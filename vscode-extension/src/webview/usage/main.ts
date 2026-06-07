@@ -73,6 +73,7 @@ type UsageAnalysisStats = {
 	today: UsageAnalysisPeriod;
 	last30Days: UsageAnalysisPeriod;
 	month: UsageAnalysisPeriod;
+	lastMonth: UsageAnalysisPeriod;
 	locale?: string;
 	lastUpdated: string;
 	customizationMatrix?: WorkspaceCustomizationMatrix | null;
@@ -872,6 +873,7 @@ function sanitizeStats(raw: any): UsageAnalysisStats | null {
 			today: sanitizePeriod(raw.today),
 			last30Days: sanitizePeriod(raw.last30Days),
 			month: sanitizePeriod(raw.month),
+			lastMonth: sanitizePeriod(raw.lastMonth),
 			lastUpdated: typeof raw.lastUpdated === 'string' ? raw.lastUpdated : '',
 			backendConfigured: !!raw.backendConfigured,
 			locale: typeof raw.locale === 'string' ? raw.locale : undefined,
@@ -1849,35 +1851,131 @@ function buildActivityTabPanelHtml(
 		</div>`;
 }
 
-function buildContextRefCardsHtml(stats: UsageAnalysisStats, todayTotalRefs: number, last30DaysTotalRefs: number): string {
-	const r = stats.last30Days.contextReferences;
-	const t = stats.today.contextReferences;
-	const c = (v: number | undefined): number => v || 0;
+interface ContextRefDescriptor {
+	label: string;
+	title?: string;
+	get: (cr: ContextReferenceUsage) => number;
+}
+
+interface ContextRefRow {
+	label: string;
+	title?: string;
+	last30: number;
+	month: number;
+	lastMonth: number;
+	today: number;
+}
+
+function numCell(value: number, extraClass = ''): string {
+	const zeroClass = value > 0 ? '' : ' ctx-ref-zero';
+	const cls = `ctx-ref-num${extraClass ? ' ' + extraClass : ''}${zeroClass}`;
+	return `<td class="${cls}">${value}</td>`;
+}
+
+function sparklineCell(lastMonth: number, month: number, today: number): string {
+	const W = 60, H = 20, PAD = 2;
+	const values = [lastMonth, month, today];
+	const max = Math.max(...values);
+	// Flat line at the bottom when all zeros
+	const points = values.map((v, i) => {
+		const x = PAD + i * ((W - PAD * 2) / (values.length - 1));
+		const y = max === 0 ? H - PAD : PAD + (1 - v / max) * (H - PAD * 2);
+		return `${x.toFixed(1)},${y.toFixed(1)}`;
+	}).join(' ');
+	const isFlat = max === 0;
+	const color = isFlat ? 'var(--text-muted)' : today >= month && month >= lastMonth ? 'var(--link-color)' : today <= month && month <= lastMonth ? '#f87171' : 'var(--text-secondary)';
+	return `<td class="ctx-ref-spark"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true"><polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>${values.map((v, i) => {
+		const x = PAD + i * ((W - PAD * 2) / (values.length - 1));
+		const y = max === 0 ? H - PAD : PAD + (1 - v / max) * (H - PAD * 2);
+		return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2" fill="${color}"/>`;
+	}).join('')}</svg></td>`;
+}
+
+function renderContextRefTable(
+	rows: ContextRefRow[],
+	totals: { last30: number; month: number; lastMonth: number; today: number },
+): string {
+	const bodyRows = rows
+		.slice()
+		.sort((a, b) => b.last30 - a.last30)
+		.map((row) => {
+			const titleAttr = row.title ? ` title="${escapeHtml(row.title)}"` : '';
+			return `<tr${titleAttr}><td class="ctx-ref-name">${row.label}</td>${numCell(row.today, row.today > 0 ? 'ctx-ref-today-active' : '')}${numCell(row.month)}${numCell(row.lastMonth)}${numCell(row.last30)}${sparklineCell(row.lastMonth, row.month, row.today)}</tr>`;
+		})
+		.join('');
 	return `
-		<div class="stats-grid">
-			<div class="stat-card"><div class="stat-label">📄 #file</div><div class="stat-value">${r.file}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${t.file}</div></div>
-			<div class="stat-card"><div class="stat-label">✂️ #selection</div><div class="stat-value">${r.selection}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${t.selection}</div></div>
-			<div class="stat-card" title="Text selected in your editor providing passive context to Copilot"><div class="stat-label">✨ Implicit Selection</div><div class="stat-value">${r.implicitSelection}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${t.implicitSelection}</div></div>
-			<div class="stat-card"><div class="stat-label">🔤 #symbol</div><div class="stat-value">${r.symbol}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${t.symbol}</div></div>
-			<div class="stat-card"><div class="stat-label">🗂️ #codebase</div><div class="stat-value">${r.codebase}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${t.codebase}</div></div>
-			<div class="stat-card"><div class="stat-label">📁 @workspace</div><div class="stat-value">${r.workspace}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${t.workspace}</div></div>
-			<div class="stat-card"><div class="stat-label">💻 @terminal</div><div class="stat-value">${r.terminal}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${t.terminal}</div></div>
-			<div class="stat-card"><div class="stat-label">🔧 @vscode</div><div class="stat-value">${r.vscode}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${t.vscode}</div></div>
-			<div class="stat-card" title="Last command run in the terminal"><div class="stat-label">⌨️ #terminalLastCommand</div><div class="stat-value">${c(r.terminalLastCommand)}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${c(t.terminalLastCommand)}</div></div>
-			<div class="stat-card" title="Selected terminal output"><div class="stat-label">🖱️ #terminalSelection</div><div class="stat-value">${c(r.terminalSelection)}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${c(t.terminalSelection)}</div></div>
-			<div class="stat-card" title="Clipboard contents"><div class="stat-label">📋 #clipboard</div><div class="stat-value">${c(r.clipboard)}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${c(t.clipboard)}</div></div>
-			<div class="stat-card" title="Uncommitted git changes"><div class="stat-label">📝 #changes</div><div class="stat-value">${c(r.changes)}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${c(t.changes)}</div></div>
-			<div class="stat-card" title="Output panel contents"><div class="stat-label">📤 #outputPanel</div><div class="stat-value">${c(r.outputPanel)}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${c(t.outputPanel)}</div></div>
-			<div class="stat-card" title="Problems panel contents"><div class="stat-label">⚠️ #problemsPanel</div><div class="stat-value">${c(r.problemsPanel)}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${c(t.problemsPanel)}</div></div>
-			<div class="stat-card" title="Pull request context references (#pr / #pullRequest) — Copilot PR chat understanding, review, and summary"><div class="stat-label">🔀 #pr</div><div class="stat-value">${c(r.pullRequest)}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${c(t.pullRequest)}</div></div>
-			<div class="stat-card" title="Pasted images and vision context detected in session logs"><div class="stat-label">📷 Images</div><div class="stat-value">${c(r.byKind['copilot.image'])}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${c(t.byKind['copilot.image'])}</div></div>
-			<div class="stat-card" title=".github/prompts/ prompt file uses detected in session logs"><div class="stat-label">📋 Prompt Files</div><div class="stat-value">${c(r.byKind['promptFile'])}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${c(t.byKind['promptFile'])}</div></div>
-			<div class="stat-card" title="Total lines of code referenced via #file: range selections"><div class="stat-label">📐 Code Lines</div><div class="stat-value">${c(r.codeContextLines)}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${c(t.codeContextLines)}</div></div>
-			<div class="stat-card" title="Custom /command prompt uses detected in session logs"><div class="stat-label">🎯 Custom Prompts</div><div class="stat-value">${c(r.byKind['prompt'])}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${c(t.byKind['prompt'])}</div></div>
-			<div class="stat-card" title="copilot-instructions.md file references detected in session logs"><div class="stat-label">📋 Copilot Instructions</div><div class="stat-value">${r.copilotInstructions}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${t.copilotInstructions}</div></div>
-			<div class="stat-card" title="agents.md file references detected in session logs"><div class="stat-label">🤖 Agents.md</div><div class="stat-value">${r.agentsMd}</div><div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Today: ${t.agentsMd}</div></div>
-			<div class="stat-card" style="background: var(--list-active-bg); border: 2px solid var(--border-color); color: var(--list-active-fg);"><div class="stat-label" style="color: var(--list-active-fg); opacity: 0.85;">📊 Total References</div><div class="stat-value" style="color: var(--list-active-fg);">${last30DaysTotalRefs}</div><div style="font-size: 10px; color: var(--list-active-fg); opacity: 0.75; margin-top: 4px;">Today: ${todayTotalRefs}</div></div>
+		<div class="ctx-ref-table-wrap">
+			<table class="ctx-ref-table">
+				<thead>
+					<tr>
+						<th class="ctx-ref-name">Reference</th>
+						<th class="ctx-ref-num">Today</th>
+						<th class="ctx-ref-num">This Month</th>
+						<th class="ctx-ref-num">Last Month</th>
+						<th class="ctx-ref-num">Last 30 Days</th>
+						<th class="ctx-ref-spark" title="Trend: Last Month → This Month → Today">Trend</th>
+					</tr>
+				</thead>
+				<tbody>
+					${bodyRows}
+				</tbody>
+				<tfoot>
+					<tr class="ctx-ref-total">
+						<td class="ctx-ref-name">📊 Total References</td>
+						<td class="ctx-ref-num">${totals.today}</td>
+						<td class="ctx-ref-num">${totals.month}</td>
+						<td class="ctx-ref-num">${totals.lastMonth}</td>
+						<td class="ctx-ref-num">${totals.last30}</td>
+						<td class="ctx-ref-spark">${sparklineCell(totals.lastMonth, totals.month, totals.today).replace(/^<td[^>]*>/, '').replace(/<\/td>$/, '')}</td>
+					</tr>
+				</tfoot>
+			</table>
 		</div>`;
+}
+
+function buildContextRefCardsHtml(stats: UsageAnalysisStats, todayTotalRefs: number, last30DaysTotalRefs: number): string {
+	const c = (v: number | undefined): number => v || 0;
+	const descriptors: ContextRefDescriptor[] = [
+		{ label: '📄 #file', get: (cr) => cr.file },
+		{ label: '✂️ #selection', get: (cr) => cr.selection },
+		{ label: '✨ Implicit Selection', title: 'Text selected in your editor providing passive context to Copilot', get: (cr) => cr.implicitSelection },
+		{ label: '🔤 #symbol', get: (cr) => cr.symbol },
+		{ label: '🗂️ #codebase', get: (cr) => cr.codebase },
+		{ label: '📁 @workspace', get: (cr) => cr.workspace },
+		{ label: '💻 @terminal', get: (cr) => cr.terminal },
+		{ label: '🔧 @vscode', get: (cr) => cr.vscode },
+		{ label: '⌨️ #terminalLastCommand', title: 'Last command run in the terminal', get: (cr) => c(cr.terminalLastCommand) },
+		{ label: '🖱️ #terminalSelection', title: 'Selected terminal output', get: (cr) => c(cr.terminalSelection) },
+		{ label: '📋 #clipboard', title: 'Clipboard contents', get: (cr) => c(cr.clipboard) },
+		{ label: '📝 #changes', title: 'Uncommitted git changes', get: (cr) => c(cr.changes) },
+		{ label: '📤 #outputPanel', title: 'Output panel contents', get: (cr) => c(cr.outputPanel) },
+		{ label: '⚠️ #problemsPanel', title: 'Problems panel contents', get: (cr) => c(cr.problemsPanel) },
+		{ label: '🔀 #pr', title: 'Pull request context references (#pr / #pullRequest) — Copilot PR chat understanding, review, and summary', get: (cr) => c(cr.pullRequest) },
+		{ label: '📷 Images', title: 'Pasted images and vision context detected in session logs', get: (cr) => c(cr.byKind['copilot.image']) },
+		{ label: '📋 Prompt Files', title: '.github/prompts/ prompt file uses detected in session logs', get: (cr) => c(cr.byKind['promptFile']) },
+		{ label: '📐 Code Lines', title: 'Total lines of code referenced via #file: range selections', get: (cr) => c(cr.codeContextLines) },
+		{ label: '🎯 Custom Prompts', title: 'Custom /command prompt uses detected in session logs', get: (cr) => c(cr.byKind['prompt']) },
+		{ label: '📋 Copilot Instructions', title: 'copilot-instructions.md file references detected in session logs', get: (cr) => cr.copilotInstructions },
+		{ label: '🤖 Agents.md', title: 'agents.md file references detected in session logs', get: (cr) => cr.agentsMd },
+	];
+	const r = stats.last30Days.contextReferences;
+	const m = stats.month.contextReferences;
+	const lm = stats.lastMonth.contextReferences;
+	const t = stats.today.contextReferences;
+	const rows: ContextRefRow[] = descriptors.map((d) => ({
+		label: d.label,
+		title: d.title,
+		last30: d.get(r),
+		month: d.get(m),
+		lastMonth: d.get(lm),
+		today: d.get(t),
+	}));
+	return renderContextRefTable(rows, {
+		last30: last30DaysTotalRefs,
+		month: getTotalContextRefs(m),
+		lastMonth: getTotalContextRefs(lm),
+		today: todayTotalRefs,
+	});
 }
 
 function buildContextRefsHtml(stats: UsageAnalysisStats, todayTotalRefs: number, last30DaysTotalRefs: number): string {
@@ -2031,7 +2129,8 @@ function renderLayout(stats: UsageAnalysisStats): void {
 			<div class="stats-grid">
 				<div class="stat-card"><div class="stat-label">📅 Today Sessions</div><div class="stat-value">${formatNumber(stats.today.sessions)}</div></div>
 				<div class="stat-card"><div class="stat-label">📆 Last 30 Days Sessions</div><div class="stat-value">${formatNumber(stats.last30Days.sessions)}</div></div>
-				<div class="stat-card"><div class="stat-label">📅 Previous Month Sessions</div><div class="stat-value">${formatNumber(stats.month.sessions)}</div></div>
+				<div class="stat-card"><div class="stat-label">📅 This Month Sessions</div><div class="stat-value">${formatNumber(stats.month.sessions)}</div></div>
+				<div class="stat-card"><div class="stat-label">📅 Last Month Sessions</div><div class="stat-value">${formatNumber(stats.lastMonth.sessions)}</div></div>
 			</div>
 		</div>`;
 

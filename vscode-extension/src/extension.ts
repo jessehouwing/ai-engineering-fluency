@@ -2358,7 +2358,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 			void this.analysisPanel.webview.postMessage({
 				command: 'updateStats',
 				data: {
-					today: analysisStats.today, last30Days: analysisStats.last30Days, month: analysisStats.month,
+					today: analysisStats.today, last30Days: analysisStats.last30Days, month: analysisStats.month, lastMonth: analysisStats.lastMonth,
 					locale: analysisStats.locale, customizationMatrix: analysisStats.customizationMatrix || null,
 					missedPotential: analysisStats.missedPotential || [],
 					lastUpdated: analysisStats.lastUpdated.toISOString(), backendConfigured: this.isBackendConfigured(),
@@ -2971,7 +2971,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 			return this.lastUsageAnalysisStats;
 		}
 		const now = new Date();
-		const { todayUtcKey, last30DaysUtcStartKey, monthUtcStartKey, last30DaysStartMs, lastMonthStartMs } = computeUtcDateRanges(now);
+		const { todayUtcKey, last30DaysUtcStartKey, monthUtcStartKey, lastMonthUtcStartKey, lastMonthUtcEndKey, last30DaysStartMs, lastMonthStartMs } = computeUtcDateRanges(now);
 		const cutoffMs = Math.min(last30DaysStartMs, lastMonthStartMs);
 		this.log('🔍 [Usage Analysis] Starting calculation...');
 		this._cacheHits = 0;
@@ -2979,6 +2979,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 		const todayStats = this.createEmptyUsagePeriod();
 		const last30DaysStats = this.createEmptyUsagePeriod();
 		const monthStats = this.createEmptyUsagePeriod();
+		const lastMonthStats = this.createEmptyUsagePeriod();
 		const todaySessionsList: TodaySessionSummary[] = [];
 		const workspaceSessionCounts = new Map<string, number>();
 		const workspaceInteractionCounts = new Map<string, number>();
@@ -2988,7 +2989,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 		this._customizationFilesCache.clear();
 		try {
 			const { results: usageResults, totalFiles } = await this.loadUsageSessionFiles(preloaded, cutoffMs);
-			const periods = { todayStats, last30DaysStats, monthStats, todayUtcKey, last30DaysUtcStartKey, monthUtcStartKey };
+			const periods = { todayStats, last30DaysStats, monthStats, lastMonthStats, todayUtcKey, last30DaysUtcStartKey, monthUtcStartKey, lastMonthUtcStartKey, lastMonthUtcEndKey };
 			const wsMaps = { workspaceSessionCounts, workspaceInteractionCounts, unresolvedWorkspaceIds, unresolvedWorkspaceInteractionCounts };
 			this.aggregateUsageFileResults(usageResults, periods, wsMaps, todaySessionsList, totalFiles);
 			this.deduplicateWorkspacePaths(workspaceSessionCounts, workspaceInteractionCounts);
@@ -3002,6 +3003,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 			today: todayStats,
 			last30Days: last30DaysStats,
 			month: monthStats,
+			lastMonth: lastMonthStats,
 			locale: Intl.DateTimeFormat().resolvedOptions().locale,
 			lastUpdated: now,
 			customizationMatrix: this._lastCustomizationMatrix,
@@ -3183,7 +3185,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 
 	private aggregateSessionFileIntoStats(
 		r: { sessionFile: string; sessionData: SessionFileCache; mtime: number },
-		periods: { todayStats: UsageAnalysisPeriod; last30DaysStats: UsageAnalysisPeriod; monthStats: UsageAnalysisPeriod; todayUtcKey: string; last30DaysUtcStartKey: string; monthUtcStartKey: string },
+		periods: { todayStats: UsageAnalysisPeriod; last30DaysStats: UsageAnalysisPeriod; monthStats: UsageAnalysisPeriod; lastMonthStats: UsageAnalysisPeriod; todayUtcKey: string; last30DaysUtcStartKey: string; monthUtcStartKey: string; lastMonthUtcStartKey: string; lastMonthUtcEndKey: string },
 		wsMaps: { workspaceSessionCounts: Map<string, number>; workspaceInteractionCounts: Map<string, number>; unresolvedWorkspaceIds: Set<string>; unresolvedWorkspaceInteractionCounts: Map<string, number> },
 		todaySessionsList: TodaySessionSummary[]
 	): void {
@@ -3192,15 +3194,24 @@ class CopilotTokenTracker implements vscode.Disposable {
 		if (interactions === 0) { return; }
 		const analysis = sessionData.usageAnalysis || this.buildDefaultSessionAnalysis();
 		const lastActivityUtcKey = this.computeLastActivityKey(sessionData, mtime);
-		if (lastActivityUtcKey < periods.last30DaysUtcStartKey) { return; }
-		periods.last30DaysStats.sessions++;
-		this.mergeUsageAnalysis(periods.last30DaysStats, analysis);
-		this.trackWorkspaceForSession(sessionFile, interactions,
-			wsMaps.workspaceSessionCounts, wsMaps.workspaceInteractionCounts,
-			wsMaps.unresolvedWorkspaceIds, wsMaps.unresolvedWorkspaceInteractionCounts);
+		const inLast30Days = lastActivityUtcKey >= periods.last30DaysUtcStartKey;
+		const inLastMonth = lastActivityUtcKey >= periods.lastMonthUtcStartKey && lastActivityUtcKey <= periods.lastMonthUtcEndKey;
+		// month-to-date is always a subset of last 30 days, so this guard also covers it.
+		if (!inLast30Days && !inLastMonth) { return; }
+		if (inLast30Days) {
+			periods.last30DaysStats.sessions++;
+			this.mergeUsageAnalysis(periods.last30DaysStats, analysis);
+			this.trackWorkspaceForSession(sessionFile, interactions,
+				wsMaps.workspaceSessionCounts, wsMaps.workspaceInteractionCounts,
+				wsMaps.unresolvedWorkspaceIds, wsMaps.unresolvedWorkspaceInteractionCounts);
+		}
 		if (lastActivityUtcKey >= periods.monthUtcStartKey) {
 			periods.monthStats.sessions++;
 			this.mergeUsageAnalysis(periods.monthStats, analysis);
+		}
+		if (inLastMonth) {
+			periods.lastMonthStats.sessions++;
+			this.mergeUsageAnalysis(periods.lastMonthStats, analysis);
 		}
 		if (lastActivityUtcKey === periods.todayUtcKey) {
 			periods.todayStats.sessions++;
@@ -3211,7 +3222,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 
 	private aggregateUsageFileResults(
 		usageResults: ({ sessionFile: string; sessionData: SessionFileCache; mtime: number } | null | undefined)[],
-		periods: { todayStats: UsageAnalysisPeriod; last30DaysStats: UsageAnalysisPeriod; monthStats: UsageAnalysisPeriod; todayUtcKey: string; last30DaysUtcStartKey: string; monthUtcStartKey: string },
+		periods: { todayStats: UsageAnalysisPeriod; last30DaysStats: UsageAnalysisPeriod; monthStats: UsageAnalysisPeriod; lastMonthStats: UsageAnalysisPeriod; todayUtcKey: string; last30DaysUtcStartKey: string; monthUtcStartKey: string; lastMonthUtcStartKey: string; lastMonthUtcEndKey: string },
 		wsMaps: { workspaceSessionCounts: Map<string, number>; workspaceInteractionCounts: Map<string, number>; unresolvedWorkspaceIds: Set<string>; unresolvedWorkspaceInteractionCounts: Map<string, number> },
 		todaySessionsList: TodaySessionSummary[], totalFiles: number
 	): void {
@@ -3778,7 +3789,32 @@ class CopilotTokenTracker implements vscode.Disposable {
 		return { preloadedContent, preloadedParsedJson };
 	}
 
-	// eslint-disable-next-line complexity
+	private buildOptionalSessionFields(
+		tokenResult: { thinkingTokens?: number; copilotNanoAiu?: number },
+		debugLogTokens: { inputTokens: number; outputTokens: number; modelTurns?: number; copilotNanoAiu?: number } | null | undefined,
+		finalCacheReadTokens: number | undefined,
+		copilotExactCostDollars: number | undefined,
+		dailyRollups: { [utcDayKey: string]: DailyRollupEntry },
+		usageAnalysis: SessionUsageAnalysis,
+	): Partial<SessionFileCache> {
+		const hasDebugLog = !!debugLogTokens && (debugLogTokens.inputTokens + debugLogTokens.outputTokens) > 0;
+		const hasEditScope = usageAnalysis?.editScope?.linesAdded !== undefined && usageAnalysis.editScope.linesAdded > 0;
+		return {
+			thinkingTokens: tokenResult.thinkingTokens,
+			...(finalCacheReadTokens ? { cacheReadTokens: finalCacheReadTokens } : {}),
+			...(debugLogTokens?.modelTurns ? { modelTurns: debugLogTokens.modelTurns } : {}),
+			...(hasDebugLog ? { debugLogInputTokens: debugLogTokens!.inputTokens, debugLogOutputTokens: debugLogTokens!.outputTokens } : {}),
+			dailyRollups: Object.keys(dailyRollups).length > 0 ? dailyRollups : undefined,
+			...(copilotExactCostDollars !== undefined ? { copilotExactCostDollars } : {}),
+			...(hasEditScope ? {
+				linesAdded: usageAnalysis!.editScope!.linesAdded,
+				linesRemoved: usageAnalysis!.editScope!.linesRemoved ?? 0,
+				...(usageAnalysis!.editScope!.languageUsage ? { languageUsage: usageAnalysis!.editScope!.languageUsage } : {}),
+			} : {}),
+		};
+	}
+
+
 	private buildSessionDataObject(
 		tokenResult: { tokens: number; actualTokens?: number; thinkingTokens?: number; cacheReadTokens?: number; copilotNanoAiu?: number },
 		interactions: number,
@@ -3792,25 +3828,14 @@ class CopilotTokenTracker implements vscode.Disposable {
 		debugLogTokens: { inputTokens: number; outputTokens: number; modelTurns?: number; copilotNanoAiu?: number } | null | undefined,
 		dailyRollups: { [utcDayKey: string]: DailyRollupEntry }
 	): SessionFileCache {
-		const hasDebugLog = debugLogTokens && (debugLogTokens.inputTokens + debugLogTokens.outputTokens) > 0;
-		const hasEditScope = usageAnalysis?.editScope?.linesAdded !== undefined && usageAnalysis.editScope.linesAdded > 0;
 		const copilotNanoAiu = debugLogTokens?.copilotNanoAiu ?? tokenResult.copilotNanoAiu ?? 0;
 		const copilotExactCostDollars = copilotNanoAiu > 0 ? copilotNanoAiu * NANO_AIU_TO_DOLLARS : undefined;
+		const optionals = this.buildOptionalSessionFields(tokenResult, debugLogTokens, finalCacheReadTokens, copilotExactCostDollars, dailyRollups, usageAnalysis);
 		return {
 			tokens: tokenResult.tokens, interactions, modelUsage: resolvedModelUsage, mtime, size: fileSize,
 			usageAnalysis, title: sessionMeta.title, firstInteraction: sessionMeta.firstInteraction,
-			lastInteraction: sessionMeta.lastInteraction, thinkingTokens: tokenResult.thinkingTokens,
-			actualTokens: resolvedActualTokens,
-			...(finalCacheReadTokens ? { cacheReadTokens: finalCacheReadTokens } : {}),
-			...(debugLogTokens?.modelTurns ? { modelTurns: debugLogTokens.modelTurns } : {}),
-			...(hasDebugLog ? { debugLogInputTokens: debugLogTokens!.inputTokens, debugLogOutputTokens: debugLogTokens!.outputTokens } : {}),
-			dailyRollups: Object.keys(dailyRollups).length > 0 ? dailyRollups : undefined,
-			...(copilotExactCostDollars !== undefined ? { copilotExactCostDollars } : {}),
-			...(hasEditScope ? {
-				linesAdded: usageAnalysis!.editScope!.linesAdded,
-				linesRemoved: usageAnalysis!.editScope!.linesRemoved ?? 0,
-				...(usageAnalysis!.editScope!.languageUsage ? { languageUsage: usageAnalysis!.editScope!.languageUsage } : {}),
-			} : {}),
+			lastInteraction: sessionMeta.lastInteraction, actualTokens: resolvedActualTokens,
+			...optionals,
 		};
 	}
 
@@ -3843,42 +3868,80 @@ class CopilotTokenTracker implements vscode.Disposable {
 		return supplemented;
 	}
 
-	// eslint-disable-next-line sonarjs/cognitive-complexity
+	private buildDailyRollupEntry(
+		tokenResult: { tokens: number; actualTokens?: number; thinkingTokens?: number; copilotNanoAiu?: number },
+		fraction: number,
+		interactions: number,
+		modelUsage: ModelUsage,
+		totalNanoAiu: number,
+	): DailyRollupEntry {
+		const dayModelUsage = this.scaledModelUsage(modelUsage, fraction);
+		const dayExactCost = totalNanoAiu > 0 ? totalNanoAiu * NANO_AIU_TO_DOLLARS * fraction : undefined;
+		return {
+			tokens: Math.round(tokenResult.tokens * fraction),
+			actualTokens: Math.round((tokenResult.actualTokens || 0) * fraction),
+			thinkingTokens: Math.round((tokenResult.thinkingTokens || 0) * fraction),
+			cachedReadTokens: 0,
+			interactions,
+			modelUsage: dayModelUsage,
+			...(dayExactCost !== undefined ? { copilotExactCostDollars: dayExactCost } : {}),
+		};
+	}
+
+	private computeRollupsFromFractions(
+		fractions: Record<string, number>,
+		tokenResult: { tokens: number; actualTokens?: number; thinkingTokens?: number; copilotNanoAiu?: number },
+		modelUsage: ModelUsage,
+		interactions: number,
+		totalNanoAiu: number,
+	): { dailyRollups: { [localDayKey: string]: DailyRollupEntry }; totalInteractions: number } {
+		const dailyRollups: { [localDayKey: string]: DailyRollupEntry } = {};
+		const totalFracInteractions = Math.max(1, interactions);
+		for (const [dayKey, fraction] of Object.entries(fractions)) {
+			const dayInteractions = Math.max(1, Math.round(totalFracInteractions * fraction));
+			dailyRollups[dayKey] = this.buildDailyRollupEntry(tokenResult, fraction, dayInteractions, modelUsage, totalNanoAiu);
+		}
+		return { dailyRollups, totalInteractions: totalFracInteractions };
+	}
+
+	private computeRollupsFromInteractionCounts(
+		interactionMap: { [localDayKey: string]: number },
+		tokenResult: { tokens: number; actualTokens?: number; thinkingTokens?: number; copilotNanoAiu?: number },
+		modelUsage: ModelUsage,
+		totalNanoAiu: number,
+	): { dailyRollups: { [localDayKey: string]: DailyRollupEntry }; totalInteractions: number } {
+		const dailyRollups: { [localDayKey: string]: DailyRollupEntry } = {};
+		const totalInteractions = Object.values(interactionMap).reduce((a, b) => a + b, 0);
+		for (const [dayKey, dayInteractionCount] of Object.entries(interactionMap)) {
+			const fraction = dayInteractionCount / totalInteractions;
+			dailyRollups[dayKey] = this.buildDailyRollupEntry(tokenResult, fraction, dayInteractionCount, modelUsage, totalNanoAiu);
+		}
+		return { dailyRollups, totalInteractions };
+	}
+
+
 	private computeDailyRollups(
 		sessionMeta: { firstInteraction: string | null; dailyInteractions: { [localDayKey: string]: number }; dailyFractions?: Record<string, number> },
 		tokenResult: { tokens: number; actualTokens?: number; thinkingTokens?: number; copilotNanoAiu?: number },
 		modelUsage: ModelUsage,
 		interactions: number
 	): { dailyRollups: { [localDayKey: string]: DailyRollupEntry }; totalInteractions: number } {
-		const dailyRollups: { [localDayKey: string]: DailyRollupEntry } = {};
 		const totalNanoAiu = tokenResult.copilotNanoAiu ?? 0;
 
 		// Prefer pre-computed fractions from ecosystem adapters (e.g. getDailyFractions()),
 		// which have accurate per-request timestamps. Fall back to dailyInteractions counts.
 		if (sessionMeta.dailyFractions && Object.keys(sessionMeta.dailyFractions).length > 0) {
-			const totalFracInteractions = Math.max(1, interactions);
-			for (const [dayKey, fraction] of Object.entries(sessionMeta.dailyFractions)) {
-				const dayModelUsage = this.scaledModelUsage(modelUsage, fraction);
-				const dayInteractions = Math.max(1, Math.round(totalFracInteractions * fraction));
-				const dayExactCost = totalNanoAiu > 0 ? totalNanoAiu * NANO_AIU_TO_DOLLARS * fraction : undefined;
-				dailyRollups[dayKey] = { tokens: Math.round(tokenResult.tokens * fraction), actualTokens: Math.round((tokenResult.actualTokens || 0) * fraction), thinkingTokens: Math.round((tokenResult.thinkingTokens || 0) * fraction), cachedReadTokens: 0, interactions: dayInteractions, modelUsage: dayModelUsage, ...(dayExactCost !== undefined ? { copilotExactCostDollars: dayExactCost } : {}) };
-			}
-			return { dailyRollups, totalInteractions: totalFracInteractions };
+			return this.computeRollupsFromFractions(sessionMeta.dailyFractions, tokenResult, modelUsage, interactions, totalNanoAiu);
 		}
 
 		const dailyInteractionMap = sessionMeta.dailyInteractions;
 		const totalInteractions = Object.values(dailyInteractionMap).reduce((a, b) => a + b, 0);
-
 		if (totalInteractions > 0) {
-			for (const [dayKey, dayInteractionCount] of Object.entries(dailyInteractionMap)) {
-				const fraction = dayInteractionCount / totalInteractions;
-				const dayModelUsage = this.scaledModelUsage(modelUsage, fraction);
-				const dayExactCost = totalNanoAiu > 0 ? totalNanoAiu * NANO_AIU_TO_DOLLARS * fraction : undefined;
-				dailyRollups[dayKey] = { tokens: Math.round(tokenResult.tokens * fraction), actualTokens: Math.round((tokenResult.actualTokens || 0) * fraction), thinkingTokens: Math.round((tokenResult.thinkingTokens || 0) * fraction), cachedReadTokens: 0, interactions: dayInteractionCount, modelUsage: dayModelUsage, ...(dayExactCost !== undefined ? { copilotExactCostDollars: dayExactCost } : {}) };
-			}
-		} else {
-			this.computeFallbackDailyRollup(dailyRollups, sessionMeta.firstInteraction, tokenResult, modelUsage, interactions);
+			return this.computeRollupsFromInteractionCounts(dailyInteractionMap, tokenResult, modelUsage, totalNanoAiu);
 		}
+
+		const dailyRollups: { [localDayKey: string]: DailyRollupEntry } = {};
+		this.computeFallbackDailyRollup(dailyRollups, sessionMeta.firstInteraction, tokenResult, modelUsage, interactions);
 		return { dailyRollups, totalInteractions };
 	}
 
@@ -5378,7 +5441,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 			void this.analysisPanel.webview.postMessage({
 				command: 'updateStats',
 				data: {
-					today: analysisStats.today, last30Days: analysisStats.last30Days, month: analysisStats.month,
+					today: analysisStats.today, last30Days: analysisStats.last30Days, month: analysisStats.month, lastMonth: analysisStats.lastMonth,
 					locale: analysisStats.locale, customizationMatrix: analysisStats.customizationMatrix || null,
 					missedPotential: analysisStats.missedPotential || [], lastUpdated: analysisStats.lastUpdated.toISOString(),
 					backendConfigured: this.isBackendConfigured(),
@@ -8080,6 +8143,7 @@ ${this.getLoadingHtmlScript()}
       today: stats.today,
       last30Days: stats.last30Days,
       month: stats.month,
+      lastMonth: stats.lastMonth,
       locale: detectedLocale,
       customizationMatrix: stats.customizationMatrix || null,
       missedPotential: stats.missedPotential || [],

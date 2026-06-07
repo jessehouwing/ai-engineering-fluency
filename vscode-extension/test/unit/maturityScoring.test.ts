@@ -64,7 +64,7 @@ function emptyPeriod(): UsageAnalysisPeriod {
 }
 
 function emptyStats(): UsageAnalysisStats {
-    return { today: emptyPeriod(), last30Days: emptyPeriod(), month: emptyPeriod(), lastUpdated: new Date() };
+    return { today: emptyPeriod(), last30Days: emptyPeriod(), month: emptyPeriod(), lastMonth: emptyPeriod(), lastUpdated: new Date() };
 }
 
 // ---------------------------------------------------------------------------
