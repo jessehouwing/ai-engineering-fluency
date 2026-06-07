@@ -4,8 +4,8 @@ All notable changes to the CLI (@rajbos/ai-engineering-fluency) will be document
 
 ## [0.2.9] - 2026-06-07
 
-### Maintenance
-- Patch version bump
+### Features
+- Add this-month token count to segment output and statusline (#1350)
 
 ## [0.2.3] - 2026-05-22
 

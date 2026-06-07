@@ -4,8 +4,16 @@ All notable changes to the VS Code extension will be documented in this file.
 
 ## [0.11.6] - 2026-06-07
 
-### Maintenance
-- Patch version bump
+### Features
+- Track session.truncation events as a negative fluency signal (#1354)
+- Add refresh button to log viewer for on-demand session reload (#1349)
+- Show context references as a readable table in usage analysis (#1348)
+- Add friendly tool names (#1352, #1347)
+- Replace premium/standard tier with cost-based model classification (#1345)
+- Surface exact Copilot billing cost from nanoAiu data (#1344)
+
+### Bug Fixes
+- Use modelUsage input+output sum for Tokens (input+output) display (#1353)
 
 ## [0.11.3] - 2026-05-22
 
