@@ -2,6 +2,11 @@
 
 All notable changes to the VS Code extension will be documented in this file.
 
+## [0.11.6] - 2026-06-07
+
+### Maintenance
+- Patch version bump
+
 ## [0.11.3] - 2026-05-22
 
 ### Maintenance
