@@ -1,7 +1,7 @@
 // Diagnostics Report webview with tabbed interface
 import { buttonHtml } from "../shared/buttonConfig";
 import { wireExtensionPointButtons } from "../shared/extensionPoints";
-import { escapeHtml, formatFileSize, getTimeSince } from "../shared/formatUtils";
+import { escapeHtml, formatFileSize, getTimeSince, getEditorIcon } from "../shared/formatUtils";
 import { createViewStateManager } from "../shared/viewState";
 // CSS imported as text via esbuild
 import themeStyles from "../shared/theme.css";
@@ -374,6 +374,9 @@ function getEditorBadgeClass(editor: string): string {
   if (lower.includes("crush")) {
     return "editor-badge editor-badge-crush";
   }
+  if (lower.includes("cursor")) {
+    return "editor-badge editor-badge-cursor";
+  }
   // Exact match required: 'copilot' contains the substring 'pi' and would false-positive.
   if (lower === 'pi') {
     return "editor-badge editor-badge-pi";
@@ -381,20 +384,6 @@ function getEditorBadgeClass(editor: string): string {
   return "editor-badge";
 }
 
-function getEditorIcon(editor: string): string {
-  const lower = editor.toLowerCase();
-  const ICONS: [string, string][] = [
-    ['jetbrains', '🟣'], ['rider', '🟣'], ['intellij', '🟣'],
-    ['visual studio', '🪟'], ['mistral', '🔥'], ['antigravity', '🚀'],
-    ['gemini', '💎'], ['crush', '🩷'], ['opencode', '🟢'],
-    ['cursor', '🖱️'], ['insiders', '💚'], ['vscodium', '🔵'],
-    ['windsurf', '🏄'], ['copilot', '🤖'], ['vs code', '💙'], ['vscode', '💙'],
-    ['pi', 'π'],
-  ];
-  // 'copilot' contains the substring 'pi', so use exact match for Pi.
-  if (lower === 'pi') { return 'π'; }
-  return ICONS.find(([key]) => lower.includes(key))?.[1] ?? '📝';
-}
 
 function getSortValue(file: SessionFileDetails, column: typeof currentSortColumn): number {
   switch (column) {

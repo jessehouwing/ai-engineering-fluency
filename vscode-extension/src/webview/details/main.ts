@@ -435,11 +435,12 @@ function buildEditorRow(item: EditorItem, totals: { today: number; last30Days: n
 	const tr = document.createElement('tr');
 	if (editor === 'JetBrains') { tr.title = 'JetBrains: only user messages + assistant text are persisted, so token counts here are estimates of those alone. Actual API counts and thinking tokens are not available.'; }
 	if (editor === 'Antigravity') { tr.title = 'Antigravity: token counts are estimated from transcript content. Actual API counts are not stored locally.'; }
+	if (editor === 'Cursor') { tr.title = 'Cursor: token counts reflect the context window size at the last request (contextTokensUsed). Output tokens are not stored locally.'; }
 	const labelTd = document.createElement('td');
 	const labelWrapper = document.createElement('span');
 	labelWrapper.className = 'metric-label';
 	labelWrapper.textContent = `${getEditorIcon(editor)} ${editor}`;
-	if (editor === 'JetBrains' || editor === 'Antigravity') { labelWrapper.textContent = `${labelWrapper.textContent} ⓘ`; }
+	if (editor === 'JetBrains' || editor === 'Antigravity' || editor === 'Cursor') { labelWrapper.textContent = `${labelWrapper.textContent} ⓘ`; }
 	labelTd.append(labelWrapper);
 	tr.append(labelTd,
 		buildValueCell(formatCompact(todayUsage.tokens), `${formatPercent(todayPct)} · ${todayUsage.sessions} sessions`),
@@ -748,7 +749,7 @@ const toolsList = document.createElement('ul');
 toolsList.className = 'empty-state-steps';
 const toolsTexts = [
 '�� VS Code / VS Code Insiders / VSCodium — GitHub Copilot Chat extension',
-'⚡ Cursor, 🌊 Windsurf — built-in AI chat',
+'🖱️ Cursor, 🌊 Windsurf — built-in AI chat',
 '🖥️ Visual Studio 2022+ — GitHub Copilot Chat extension',
 '🟢 OpenCode, 🦀 Crush — terminal-based coding agents',
 '🤖 Claude Code — Anthropic\'s CLI coding agent',
