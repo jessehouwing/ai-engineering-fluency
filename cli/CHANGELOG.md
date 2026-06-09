@@ -2,6 +2,11 @@
 
 All notable changes to the CLI (@rajbos/ai-engineering-fluency) will be documented in this file.
 
+## [0.2.10] - 2026-06-09
+
+### Bug Fixes
+- Fix fluency command crash: initialize modelSwitching cost model arrays instead of Sets (#1366)
+
 ## [0.2.9] - 2026-06-07
 
 ### Features
