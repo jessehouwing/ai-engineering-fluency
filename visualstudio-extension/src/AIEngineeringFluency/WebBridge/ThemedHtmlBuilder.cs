@@ -139,8 +139,8 @@ window.{globalKey} = {safeJson};
     });
 
     // Hide tabs that require GitHub auth or backend data not available in Visual Studio:
-    // Workspace Health, Repository PRs, Cloud Agent, Insights.
-    ['health', 'repos', 'agent', 'insights'].forEach(function(tab) {
+    // Workspace Health, Repository PRs, Cloud Agent, Insights, Today's Sessions.
+    ['health', 'repos', 'agent', 'insights', 'sessions'].forEach(function(tab) {
       var btn = document.querySelector('.tab-button[data-tab=""' + tab + '""]');
       if (btn) { btn.style.display = 'none'; }
       var panel = document.getElementById('tab-panel-' + tab);
