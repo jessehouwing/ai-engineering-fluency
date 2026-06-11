@@ -85,6 +85,16 @@
       <VSIXSubPath>assets\</VSIXSubPath>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <!-- Unified Settings manifest (VS 2022 17.9+) -->
+    <Content Include="AIEngineeringFluency.registration.json">
+      <IncludeInVSIX>true</IncludeInVSIX>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- pkgdef fragment that registers the Unified Settings manifest -->
+    <Content Include="UnifiedSettings.pkgdef">
+      <IncludeInVSIX>true</IncludeInVSIX>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <!-- VSIX manifest -->
   <ItemGroup>
