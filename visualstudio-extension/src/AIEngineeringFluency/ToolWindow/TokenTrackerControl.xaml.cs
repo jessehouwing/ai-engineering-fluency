@@ -91,6 +91,10 @@ namespace AIEngineeringFluency.ToolWindow
                 WebView.Visibility  = Visibility.Visible;
                 FallbackText.Visibility = Visibility.Collapsed;
 
+                // Warm all CLI caches in one shot via `all --json` before loading any view.
+                // Individual view calls that follow will return from in-memory cache.
+                await CliBridge.GetAllDataAsync();
+
                 // Show the details view as soon as usage stats are available (may use the
                 // in-memory cache from the toolbar timer that fires 3 s after extension load).
                 _currentView = "details";
@@ -227,6 +231,7 @@ namespace AIEngineeringFluency.ToolWindow
                         today = new { },
                         last30Days = new { },
                         month = new { },
+                        lastMonth = new { },
                         locale = "en-US",
                         lastUpdated = DateTime.UtcNow.ToString("o"),
                         backendConfigured = false,

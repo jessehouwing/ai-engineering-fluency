@@ -26,6 +26,7 @@ namespace AIEngineeringFluency
     [ProvideAutoLoad(VSConstants.UICONTEXT.NoSolution_string, PackageAutoLoadFlags.BackgroundLoad)]
     [ProvideAutoLoad(UIContextGuids80.SolutionExists, PackageAutoLoadFlags.BackgroundLoad)]
     [ProvideOptionPage(typeof(Options.OptionsPage), "AI Engineering Fluency", "General", 0, 0, supportsAutomation: true)]
+    [ProvideProfile(typeof(Options.OptionsPage), "AI Engineering Fluency", "General", 0, 0, isToolsOptionPage: true)]
     public sealed class AIEngineeringFluencyPackage : AsyncPackage
     {
         /// <summary>Package identity GUID — must match source.extension.vsixmanifest and .vsct.</summary>
@@ -43,9 +44,8 @@ namespace AIEngineeringFluency
                 Utilities.OutputLogger.Initialize(this);
                 Utilities.OutputLogger.Log("=== AI Engineering Fluency Extension Starting ===");
 
-                // Seed user settings from the Tools > Options page so the WebView control
-                // and toolbar command can read them via the static ExtensionSettings holder.
-                SeedSettings();
+                // Seed user settings asynchronously via the Community Toolkit BaseOptionModel.
+                await SeedSettingsAsync();
                 Utilities.OutputLogger.Log($"Package GUID: {PackageGuidString}");
                 Utilities.OutputLogger.Log($"Visual Studio Version: {this.ApplicationRegistryRoot}");
 
@@ -72,20 +72,19 @@ namespace AIEngineeringFluency
         }
 
         /// <summary>
-        /// Loads the Options page from storage and mirrors its values into
+        /// Loads settings asynchronously via the Community Toolkit's
+        /// <see cref="Options.GeneralOptions"/> model and mirrors them into
         /// <see cref="Options.ExtensionSettings"/>. Safe to fail — defaults are used.
         /// </summary>
-        private void SeedSettings()
+        private async Task SeedSettingsAsync()
         {
             try
             {
-                if (GetDialogPage(typeof(Options.OptionsPage)) is Options.OptionsPage page)
-                {
-                    page.Apply();
-                    Utilities.OutputLogger.Log(
-                        $"Settings seeded: compactNumbers={Options.ExtensionSettings.CompactNumbers}, " +
-                        $"toolbarPeriod={Options.ExtensionSettings.ToolbarComparisonPeriod}");
-                }
+                var opts = await Options.GeneralOptions.GetLiveInstanceAsync();
+                Options.ExtensionSettings.Apply(opts);
+                Utilities.OutputLogger.Log(
+                    $"Settings seeded: compactNumbers={Options.ExtensionSettings.CompactNumbers}, " +
+                    $"toolbarPeriod={Options.ExtensionSettings.ToolbarComparisonPeriod}");
             }
             catch (Exception ex)
             {

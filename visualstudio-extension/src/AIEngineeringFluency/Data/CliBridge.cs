@@ -93,13 +93,14 @@ namespace AIEngineeringFluency.Data
                     return _inflightUsageTask;
                 }
 
-                _inflightUsageTask = RunGetUsageStatsAsync();
-                _ = _inflightUsageTask.ContinueWith(_ =>
+                var usageTask = RunGetUsageStatsAsync();
+                _inflightUsageTask = usageTask;
+                _ = usageTask.ContinueWith(_ =>
                 {
                     lock (_usageLock) { _inflightUsageTask = null; }
                 }, System.Threading.Tasks.TaskContinuationOptions.ExecuteSynchronously);
 
-                return _inflightUsageTask;
+                return usageTask;
             }
         }
 

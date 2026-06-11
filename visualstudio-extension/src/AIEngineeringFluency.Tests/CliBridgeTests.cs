@@ -36,5 +36,43 @@ namespace AIEngineeringFluency.Tests
             var task = CliBridge.GetAllDataAsync();
             Assert.IsNotNull(task);
         }
+
+        /// <summary>
+        /// Regression test: when the CLI exe is absent, GetUsageStatsAsync() must return a
+        /// non-null Task (awaitable without NullReferenceException). Previously the in-flight
+        /// Task was nulled out by its own ContinueWith(ExecuteSynchronously) before the method
+        /// could return it, causing `await null` → NullReferenceException in the details and
+        /// environmental views.
+        /// </summary>
+        [TestMethod]
+        public void GetUsageStatsAsync_ReturnsNonNullTask()
+        {
+            // GetUsageStatsAsync() must always return a non-null Task, even when the CLI exe
+            // is not present.  Awaiting a null task throws NullReferenceException (the bug
+            // this test guards against).
+            var task = CliBridge.GetUsageStatsAsync();
+            Assert.IsNotNull(task, "GetUsageStatsAsync() returned null — awaiting it would throw NullReferenceException");
+        }
+
+        /// <summary>
+        /// Verifies that GetUsageStatsAsync returns null stats (not a faulted task) when
+        /// the CLI exe is absent.  The caller must handle the null result gracefully.
+        /// </summary>
+        [TestMethod]
+        public async Task GetUsageStatsAsync_WhenCliAbsent_ReturnsNullResult()
+        {
+            // When the CLI exe is not bundled the task must complete (not fault) with null.
+            if (CliBridge.IsAvailable())
+            {
+                // CLI is present in this environment — skip the "absent" assertion.
+                return;
+            }
+
+            var task = CliBridge.GetUsageStatsAsync();
+            Assert.IsNotNull(task, "Task itself must not be null");
+
+            var result = await task;
+            Assert.IsNull(result, "Stats result should be null when CLI exe is absent");
+        }
     }
 }

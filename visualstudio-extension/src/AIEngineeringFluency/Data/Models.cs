@@ -71,6 +71,13 @@ namespace AIEngineeringFluency.Data
 
         [JsonPropertyName("estimatedCost")]
         public double EstimatedCost { get; set; }
+
+        /// <summary>
+        /// Copilot UBB (Usage Based Billing) cost in USD — what the Copilot billing system charges.
+        /// Displayed as "Estimated cost (UBB)" in the details webview.
+        /// </summary>
+        [JsonPropertyName("estimatedCostCopilot")]
+        public double? EstimatedCostCopilot { get; set; }
     }
 
     // ── Per-model token breakdown ────────────────────────────────────────────────

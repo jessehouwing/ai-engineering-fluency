@@ -522,17 +522,21 @@ export async function calculateUsageAnalysisStats(sessionFiles: string[]): Promi
 	const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 	const last30DaysStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30);
 	const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+	const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+	// Cutoff includes last month — which may start before the 30-day window
+	const cutoffStart = lastMonthStart < last30DaysStart ? lastMonthStart : last30DaysStart;
 
 	const todayPeriod = createEmptyUsageAnalysisPeriod();
 	const last30DaysPeriod = createEmptyUsageAnalysisPeriod();
 	const monthPeriod = createEmptyUsageAnalysisPeriod();
+	const lastMonthPeriod = createEmptyUsageAnalysisPeriod();
 
 	for (const file of sessionFiles) {
 		try {
 			const stats = await statSessionFile(file);
 			const modified = stats.mtime;
 
-			if (modified < last30DaysStart) {
+			if (modified < cutoffStart) {
 				continue;
 			}
 
@@ -550,6 +554,10 @@ export async function calculateUsageAnalysisStats(sessionFiles: string[]): Promi
 				mergeUsageAnalysis(todayPeriod, analysis);
 				todayPeriod.sessions++;
 			}
+			if (modified >= lastMonthStart && modified < monthStart) {
+				mergeUsageAnalysis(lastMonthPeriod, analysis);
+				lastMonthPeriod.sessions++;
+			}
 		} catch {
 			// Skip files that can't be processed
 		}
@@ -559,6 +567,7 @@ export async function calculateUsageAnalysisStats(sessionFiles: string[]): Promi
 		today: todayPeriod,
 		last30Days: last30DaysPeriod,
 		month: monthPeriod,
+		lastMonth: lastMonthPeriod,
 		lastUpdated: now,
 	};
 }

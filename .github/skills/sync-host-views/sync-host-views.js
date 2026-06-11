@@ -49,11 +49,11 @@ const PATHS = {
   esbuild: path.join(REPO_ROOT, 'vscode-extension', 'esbuild.js'),
   distWebview: path.join(REPO_ROOT, 'vscode-extension', 'dist', 'webview'),
   vsCsproj: path.join(
-    REPO_ROOT, 'visualstudio-extension', 'src', 'CopilotTokenTracker',
-    'CopilotTokenTracker.csproj',
+    REPO_ROOT, 'visualstudio-extension', 'src', 'AIEngineeringFluency',
+    'AIEngineeringFluency.csproj',
   ),
   vsCommittedWebview: path.join(
-    REPO_ROOT, 'visualstudio-extension', 'src', 'CopilotTokenTracker', 'webview',
+    REPO_ROOT, 'visualstudio-extension', 'src', 'AIEngineeringFluency', 'webview',
   ),
   jbGradle: path.join(REPO_ROOT, 'jetbrains-plugin', 'build.gradle.kts'),
 };

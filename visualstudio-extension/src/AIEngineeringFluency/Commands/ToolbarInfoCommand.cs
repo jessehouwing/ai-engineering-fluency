@@ -77,7 +77,23 @@ namespace AIEngineeringFluency.Commands
                     var secondaryStats = useMonth ? stats.Month : stats.Last30Days;
                     var secondaryLabel = useMonth ? "month" : "30d";
                     var secondary = FormatTokenCount(secondaryStats.Tokens);
-                    text = $"AI Engineering Fluency: {today} ({stats.Today.Tokens:N0}) | {secondaryLabel} {secondary} ({secondaryStats.Tokens:N0})";
+
+                    string costSuffix = string.Empty;
+                    if (Options.ExtensionSettings.ShowCostInToolbar)
+                    {
+                        var todayCost     = stats.Today.EstimatedCostCopilot     ?? stats.Today.EstimatedCost;
+                        var secondaryCost = secondaryStats.EstimatedCostCopilot  ?? secondaryStats.EstimatedCost;
+                        costSuffix = $" | ${todayCost:F2} | ${secondaryCost:F2}";
+                    }
+
+                    if (Options.ExtensionSettings.CompactNumbers)
+                    {
+                        text = $"AI Engineering Fluency: {today} | {secondaryLabel} {secondary}{costSuffix}";
+                    }
+                    else
+                    {
+                        text = $"AI Engineering Fluency: {today} ({stats.Today.Tokens:N0}) | {secondaryLabel} {secondary} ({secondaryStats.Tokens:N0}){costSuffix}";
+                    }
                 }
 
                 await _package.JoinableTaskFactory.SwitchToMainThreadAsync(_package.DisposalToken);

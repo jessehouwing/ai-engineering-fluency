@@ -16,7 +16,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>AIEngineeringFluency</RootNamespace>
     <AssemblyName>AIEngineeringFluency</AssemblyName>
-    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <GeneratePkgDefFile>true</GeneratePkgDefFile>
@@ -53,6 +53,7 @@
     <Compile Include="Commands\ShowTokenTrackerCommand.cs" />
     <Compile Include="Commands\ToolbarInfoCommand.cs" />
     <Compile Include="Options\ExtensionSettings.cs" />
+    <Compile Include="Options\GeneralOptions.cs" />
     <Compile Include="Options\OptionsPage.cs" />
     <Compile Include="Data\Models.cs" />
     <Compile Include="Data\CliBridge.cs" />
@@ -82,6 +83,16 @@
     <Content Include="assets\logo.png">
       <IncludeInVSIX>true</IncludeInVSIX>
       <VSIXSubPath>assets\</VSIXSubPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Unified Settings manifest (VS 2022 17.9+) -->
+    <Content Include="AIEngineeringFluency.registration.json">
+      <IncludeInVSIX>true</IncludeInVSIX>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- pkgdef fragment that registers the Unified Settings manifest -->
+    <Content Include="UnifiedSettings.pkgdef">
+      <IncludeInVSIX>true</IncludeInVSIX>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
@@ -121,6 +132,7 @@
     <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.6.36389" ExcludeAssets="runtime" NoWarn="NU1604" />
     <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="17.6.2164" NoWarn="NU1604" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2478.35" />
+    <PackageReference Include="Community.VisualStudio.Toolkit" Version="17.0.76.303" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
@@ -172,6 +184,7 @@
     <MakeDir Directories="$(MSBuildProjectDirectory)\webview" />
     <Copy SourceFiles="@(_WebviewBundle)" DestinationFolder="$(MSBuildProjectDirectory)\webview\" SkipUnchangedFiles="true" ContinueOnError="true" />
     <Message Importance="high" Text="Copied webview bundles from vscode-extension/dist/webview/ — rebuild vscode-extension if they are missing." />
+
   </Target>
   <!-- Include copied webview JS files inside the VSIX package -->
   <ItemGroup>
@@ -186,17 +199,52 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
-  <!-- Include the bundled CLI executable and runtime assets inside the VSIX package -->
+  <!--
+    Copy cli-bundle files to the output directory so the extension DLL can find them
+    when loaded from bin\Debug or bin\Release (not from the VSIX).
+    VSIX packaging is handled separately by the AddCliBundleToVsix target below.
+  -->
   <ItemGroup>
-    <Content Include="cli-bundle\copilot-token-tracker.exe" Condition="Exists('$(MSBuildProjectDirectory)\cli-bundle\copilot-token-tracker.exe')">
-      <IncludeInVSIX>true</IncludeInVSIX>
-      <VSIXSubPath>cli-bundle\</VSIXSubPath>
+    <Content Include="$(MSBuildProjectDirectory)\cli-bundle\copilot-token-tracker.exe"
+             Condition="Exists('$(MSBuildProjectDirectory)\cli-bundle\copilot-token-tracker.exe')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>cli-bundle\copilot-token-tracker.exe</Link>
     </Content>
-    <Content Include="cli-bundle\sql-wasm.wasm" Condition="Exists('$(MSBuildProjectDirectory)\cli-bundle\sql-wasm.wasm')">
-      <IncludeInVSIX>true</IncludeInVSIX>
-      <VSIXSubPath>cli-bundle\</VSIXSubPath>
+    <Content Include="$(MSBuildProjectDirectory)\cli-bundle\sql-wasm.wasm"
+             Condition="Exists('$(MSBuildProjectDirectory)\cli-bundle\sql-wasm.wasm')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>cli-bundle\sql-wasm.wasm</Link>
     </Content>
   </ItemGroup>
+
+  <!--
+    Add the bundled CLI exe and associated wasm into the VSIX by directly injecting
+    VSIXSourceItem entries immediately before GetVsixSourceItems collects them.
+
+    Why BeforeTargets="GetVsixSourceItems" and NOT BeforeTargets="Build":
+      CreateVsixContainer is triggered by PrepareForRun (not Build). The CopyWebviewBundles
+      target (BeforeTargets="Build") does NOT run in the PrepareForRun path, so any Content
+      items added there are invisible to GetVsixSourceItems.
+
+    Why we also delete $(FileManifest) (files.json):
+      GenerateFileManifest has only Outputs (no Inputs), so it is skipped whenever
+      files.json already exists — even if the item list has changed. Deleting it here
+      (when cli-bundle is present) forces GenerateFileManifest to regenerate files.json
+      with the cli-bundle entries included, so VsixUtil packages them correctly.
+  -->
+  <Target Name="AddCliBundleToVsix" BeforeTargets="GetVsixSourceItems">
+    <!-- Force files.json to regenerate so cli-bundle entries are included. -->
+    <Delete Files="$(FileManifest)"
+            Condition="Exists('$(MSBuildProjectDirectory)\cli-bundle\copilot-token-tracker.exe') AND Exists('$(FileManifest)')" />
+    <ItemGroup>
+      <VSIXSourceItem Include="$(MSBuildProjectDirectory)\cli-bundle\copilot-token-tracker.exe"
+                      Condition="Exists('$(MSBuildProjectDirectory)\cli-bundle\copilot-token-tracker.exe')">
+        <VSIXSubPath>cli-bundle\</VSIXSubPath>
+      </VSIXSourceItem>
+      <VSIXSourceItem Include="$(MSBuildProjectDirectory)\cli-bundle\sql-wasm.wasm"
+                      Condition="Exists('$(MSBuildProjectDirectory)\cli-bundle\sql-wasm.wasm')">
+        <VSIXSubPath>cli-bundle\</VSIXSubPath>
+      </VSIXSourceItem>
+    </ItemGroup>
+  </Target>
 </Project>

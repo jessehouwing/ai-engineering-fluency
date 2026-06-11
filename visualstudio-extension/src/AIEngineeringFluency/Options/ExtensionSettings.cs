@@ -30,8 +30,22 @@
         public static bool CompactNumbers { get; set; } = true;
 
         /// <summary>
+        /// When <c>true</c> (default) the estimated dollar cost (UBB) is shown in the toolbar
+        /// next to the token count for today and the configured comparison period.
+        /// </summary>
+        public static bool ShowCostInToolbar { get; set; } = true;
+
+        /// <summary>
         /// Secondary period shown next to "today" in the toolbar/status-bar summary.
         /// </summary>
         public static ComparisonPeriod ToolbarComparisonPeriod { get; set; } = ComparisonPeriod.Last30Days;
+
+        /// <summary>Mirror values from the toolkit options model into this static holder.</summary>
+        public static void Apply(GeneralOptions options)
+        {
+            CompactNumbers            = options.CompactNumbers;
+            ShowCostInToolbar         = options.ShowCostInToolbar;
+            ToolbarComparisonPeriod   = options.ToolbarComparisonPeriod;
+        }
     }
 }
