@@ -81,8 +81,9 @@ namespace AIEngineeringFluency.Commands
                     string costSuffix = string.Empty;
                     if (Options.ExtensionSettings.ShowCostInToolbar)
                     {
-                        var cost = secondaryStats.EstimatedCostCopilot ?? secondaryStats.EstimatedCost;
-                        costSuffix = $" | ${cost:F2}";
+                        var todayCost     = stats.Today.EstimatedCostCopilot     ?? stats.Today.EstimatedCost;
+                        var secondaryCost = secondaryStats.EstimatedCostCopilot  ?? secondaryStats.EstimatedCost;
+                        costSuffix = $" | ${todayCost:F2} | ${secondaryCost:F2}";
                     }
 
                     if (Options.ExtensionSettings.CompactNumbers)
