@@ -108,6 +108,8 @@ window.{globalKey} = {safeJson};
 
             // Hide the Customization Files section, the Missed Potential section, and the
             // Repository Hygiene section — none of which have data in Visual Studio.
+            // Also hide the Workspace Health, Repository PRs, Cloud Agent, and Insights tabs
+            // as those require GitHub auth / backend data not available in Visual Studio.
             return @"<script>
 (function () {
   function hideUnsupportedSections() {
@@ -134,6 +136,15 @@ window.{globalKey} = {safeJson};
           el.style && el.parentElement) {
         el.style.display = 'none';
       }
+    });
+
+    // Hide tabs that require GitHub auth or backend data not available in Visual Studio:
+    // Workspace Health, Repository PRs, Cloud Agent, Insights.
+    ['health', 'repos', 'agent', 'insights'].forEach(function(tab) {
+      var btn = document.querySelector('.tab-button[data-tab=""' + tab + '""]');
+      if (btn) { btn.style.display = 'none'; }
+      var panel = document.getElementById('tab-panel-' + tab);
+      if (panel) { panel.style.display = 'none'; }
     });
   }
 
