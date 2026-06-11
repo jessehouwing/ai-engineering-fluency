@@ -69,6 +69,89 @@ export function enumerateRuntimeTools(tools: readonly RuntimeToolInfo[]): Availa
 }
 
 // ---------------------------------------------------------------------------
+// Extension-contributed MCP servers (VS Code only — pass `[]` from CLI)
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal shape of a VS Code Extension object needed for MCP server enumeration.
+ * Declared locally to avoid a hard dependency on the `vscode` module.
+ */
+export interface ExtensionInfo {
+	id: string;
+	displayName?: string;
+	isActive: boolean;
+	packageJSON?: {
+		displayName?: string;
+		contributes?: {
+			mcpServers?: Record<string, { label?: string; [key: string]: unknown }>;
+		};
+	};
+}
+
+/**
+ * Enumerate MCP servers contributed by installed VS Code extensions via their
+ * `contributes.mcpServers` package.json entry.
+ *
+ * These servers may not be actively running yet (e.g. the server hasn't been started
+ * for the current session), so they won't appear in `vscode.lm.tools`. Call this
+ * alongside `enumerateRuntimeTools` and deduplicate by server name before merging.
+ *
+ * @param extensions  Pass `vscode.extensions.all` from extension.ts.
+ * @param enabledServerNames  Set of MCP server names that currently have at least one
+ *   enabled tool in `vscode.lm.tools`. Used to mark each entry's `enabled` flag so
+ *   the UI can tell "installed but tools disabled" apart from "installed and enabled".
+ *   Pass an empty set if you don't have this information.
+ */
+export function enumerateExtensionMcpServers(
+	extensions: readonly ExtensionInfo[],
+	enabledServerNames: ReadonlySet<string> = new Set(),
+): AvailableToolEntry[] {
+	const entries: AvailableToolEntry[] = [];
+	for (const ext of extensions) {
+		const mcpServers = ext.packageJSON?.contributes?.mcpServers;
+		if (!mcpServers || typeof mcpServers !== 'object') { continue; }
+		for (const serverName of Object.keys(mcpServers)) {
+			const serverDef = mcpServers[serverName];
+			const label = serverDef?.label ?? serverName;
+			const displayName = ext.packageJSON?.displayName ?? ext.displayName ?? ext.id;
+			entries.push({
+				name: `mcp__${serverName}`,
+				description: `MCP server "${label}" provided by extension ${displayName}`,
+				source: 'mcp',
+				server: serverName,
+				extensionId: ext.id,
+				enabled: enabledServerNames.has(serverName),
+				extensionActive: ext.isActive,
+			});
+		}
+	}
+	return entries;
+}
+
+// ---------------------------------------------------------------------------
+// Settings-based MCP servers (VS Code only — pass `{}` from CLI)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build `AvailableToolEntry` stubs for MCP servers configured in VS Code's
+ * `mcp.servers` setting (user or workspace scope).
+ *
+ * This covers servers added via the VS Code UI or settings.json directly,
+ * which is separate from the file-based `.vscode/mcp.json` approach.
+ *
+ * Pass `vscode.workspace.getConfiguration('mcp').get<Record<string, unknown>>('servers', {})`.
+ */
+export function buildMcpEntriesFromSettings(servers: Record<string, unknown>): AvailableToolEntry[] {
+	if (!servers || typeof servers !== 'object') { return []; }
+	return Object.keys(servers).map((serverName): AvailableToolEntry => ({
+		name: `mcp__${serverName}`,
+		description: `MCP server: ${serverName}`,
+		source: 'mcp',
+		server: serverName,
+	}));
+}
+
+// ---------------------------------------------------------------------------
 // MCP JSON parsing (works in both VS Code and CLI)
 // ---------------------------------------------------------------------------
 
@@ -302,7 +385,7 @@ function computeUnderusedMcpServers(
 	availableTools: AvailableToolEntry[],
 	usedNames: Set<string>,
 	usagePeriod: UsageAnalysisPeriod,
-): { server: string; availableToolCount: number; usedToolCount: number; configFiles?: string[] }[] {
+): { server: string; availableToolCount: number; usedToolCount: number; configFiles?: string[]; extensionId?: string; enabled?: boolean; extensionActive?: boolean }[] {
 	const mcpServers = new Set<string>();
 	for (const t of availableTools) {
 		if (t.source === 'mcp' && t.server) { mcpServers.add(t.server); }
@@ -312,13 +395,25 @@ function computeUnderusedMcpServers(
 		const usedServerTools = serverTools.filter(t => usedNames.has(t.name));
 		// Collect all distinct config files across all entries for this server
 		const configFiles = [...new Set(serverTools.flatMap(t => t.configFiles ?? []))];
+		// Pick up extensionId / enabled / extensionActive if any entry for this server was contributed by an extension
+		const extEntry = serverTools.find(t => t.extensionId);
+		const extensionId = extEntry?.extensionId;
+		const enabled = extEntry?.enabled;
+		const extensionActive = extEntry?.extensionActive;
 		return {
 			server,
 			availableToolCount: serverTools.length,
 			usedToolCount: usedServerTools.length,
 			configFiles: configFiles.length > 0 ? configFiles : undefined,
+			extensionId,
+			enabled,
+			extensionActive,
 		};
-	}).filter(s => s.usedToolCount < s.availableToolCount);
+	})
+	// Underused = fewer used than available, AND not already disabled by the user.
+	// Extension-contributed servers whose tools are disabled don't consume prompt budget,
+	// so there's nothing to recommend curating.
+	.filter(s => s.usedToolCount < s.availableToolCount && s.enabled !== false);
 }
 
 function buildBloatEstimate(
@@ -387,6 +482,9 @@ export function analyzeToolCuration(
 			return !Array.from(usedNames).some(u => u.includes(t.name));
 		}
 		if (t.source === 'mcp' && t.server) {
+			// Disabled extension-contributed servers don't consume prompt budget — don't count
+			// them as "unused" or include them in bloat estimates.
+			if (t.enabled === false) { return false; }
 			return (usagePeriod.mcpTools.byServer[t.server] ?? 0) < MCP_SERVER_USE_THRESHOLD;
 		}
 		return !usedNames.has(t.name);

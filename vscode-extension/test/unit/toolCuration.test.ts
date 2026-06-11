@@ -6,11 +6,14 @@ import * as path from 'node:path';
 
 import {
 	enumerateRuntimeTools,
+	enumerateExtensionMcpServers,
 	parseMcpJson,
 	buildMcpEntriesFromJson,
+	buildMcpEntriesFromSettings,
 	discoverSkillEntries,
 	analyzeToolCuration,
 	type RuntimeToolInfo,
+	type ExtensionInfo,
 } from '../../src/toolCuration';
 import type { UsageAnalysisPeriod } from '../../src/types';
 
@@ -116,6 +119,127 @@ test('enumerateRuntimeTools: maps MCP tools and extracts server name', () => {
 
 test('enumerateRuntimeTools: returns empty array for empty input', () => {
 	assert.deepEqual(enumerateRuntimeTools([]), []);
+});
+
+// ---------------------------------------------------------------------------
+// enumerateExtensionMcpServers
+// ---------------------------------------------------------------------------
+
+test('enumerateExtensionMcpServers: returns empty array for no extensions', () => {
+	assert.deepEqual(enumerateExtensionMcpServers([]), []);
+});
+
+test('enumerateExtensionMcpServers: ignores extensions without mcpServers contribution', () => {
+	const ext: ExtensionInfo = { id: 'ms.some-ext', isActive: true, packageJSON: { contributes: {} } };
+	assert.deepEqual(enumerateExtensionMcpServers([ext]), []);
+});
+
+test('enumerateExtensionMcpServers: returns entry for each contributed server', () => {
+	const ext: ExtensionInfo = {
+		id: 'ms.my-ext',
+		displayName: 'My Extension',
+		isActive: true,
+		packageJSON: {
+			displayName: 'My Extension',
+			contributes: {
+				mcpServers: {
+					'my-server': { command: 'node', args: ['server.js'] },
+					'another-server': { label: 'Another', command: 'npx', args: ['another'] },
+				},
+			},
+		},
+	};
+	const result = enumerateExtensionMcpServers([ext]);
+	assert.equal(result.length, 2);
+	const serverNames = result.map(e => e.server).sort();
+	assert.deepEqual(serverNames, ['another-server', 'my-server']);
+	assert.ok(result.every(e => e.source === 'mcp'), 'all entries should have source mcp');
+	assert.ok(result.every(e => e.extensionId === 'ms.my-ext'), 'all entries should reference the extension id');
+});
+
+test('enumerateExtensionMcpServers: uses server label in description when available', () => {
+	const ext: ExtensionInfo = {
+		id: 'ms.my-ext',
+		isActive: true,
+		packageJSON: {
+			contributes: {
+				mcpServers: { 'srv': { label: 'Friendly Name' } },
+			},
+		},
+	};
+	const result = enumerateExtensionMcpServers([ext]);
+	assert.equal(result.length, 1);
+	assert.ok(result[0].description.includes('Friendly Name'), 'description should include server label');
+});
+
+test('enumerateExtensionMcpServers: collects servers from multiple extensions', () => {
+	const extA: ExtensionInfo = {
+		id: 'pub.ext-a', isActive: true,
+		packageJSON: { contributes: { mcpServers: { 'server-a': {} } } },
+	};
+	const extB: ExtensionInfo = {
+		id: 'pub.ext-b', isActive: false,
+		packageJSON: { contributes: { mcpServers: { 'server-b': {} } } },
+	};
+	const result = enumerateExtensionMcpServers([extA, extB]);
+	assert.equal(result.length, 2);
+	assert.ok(result.some(e => e.server === 'server-a' && e.extensionId === 'pub.ext-a'));
+	assert.ok(result.some(e => e.server === 'server-b' && e.extensionId === 'pub.ext-b'));
+});
+
+test('enumerateExtensionMcpServers: marks enabled flag from runtime server set', () => {
+	const ext: ExtensionInfo = {
+		id: 'pub.ext', isActive: true,
+		packageJSON: { contributes: { mcpServers: { 'on-server': {}, 'off-server': {} } } },
+	};
+	const result = enumerateExtensionMcpServers([ext], new Set(['on-server']));
+	const on = result.find(e => e.server === 'on-server');
+	const off = result.find(e => e.server === 'off-server');
+	assert.equal(on?.enabled, true, 'server present in runtime set should be marked enabled');
+	assert.equal(off?.enabled, false, 'server absent from runtime set should be marked disabled');
+});
+
+test('enumerateExtensionMcpServers: propagates extensionActive from ExtensionInfo', () => {
+	const active: ExtensionInfo = {
+		id: 'pub.active', isActive: true,
+		packageJSON: { contributes: { mcpServers: { 's1': {} } } },
+	};
+	const inactive: ExtensionInfo = {
+		id: 'pub.inactive', isActive: false,
+		packageJSON: { contributes: { mcpServers: { 's2': {} } } },
+	};
+	const result = enumerateExtensionMcpServers([active, inactive]);
+	assert.equal(result.find(e => e.server === 's1')?.extensionActive, true);
+	assert.equal(result.find(e => e.server === 's2')?.extensionActive, false);
+});
+
+test('enumerateExtensionMcpServers: defaults enabled to false when no runtime set provided', () => {
+	const ext: ExtensionInfo = {
+		id: 'pub.ext', isActive: true,
+		packageJSON: { contributes: { mcpServers: { 's': {} } } },
+	};
+	const result = enumerateExtensionMcpServers([ext]);
+	assert.equal(result[0].enabled, false);
+});
+
+// ---------------------------------------------------------------------------
+// buildMcpEntriesFromSettings
+// ---------------------------------------------------------------------------
+
+test('buildMcpEntriesFromSettings: returns empty array for empty object', () => {
+	assert.deepEqual(buildMcpEntriesFromSettings({}), []);
+});
+
+test('buildMcpEntriesFromSettings: returns entry for each settings server', () => {
+	const servers = {
+		'settings-server': { command: 'node', args: ['s.js'] },
+		'another-settings-server': { url: 'http://localhost:3000' },
+	};
+	const result = buildMcpEntriesFromSettings(servers);
+	assert.equal(result.length, 2);
+	const names = result.map(e => e.server).sort();
+	assert.deepEqual(names, ['another-settings-server', 'settings-server']);
+	assert.ok(result.every(e => e.source === 'mcp'), 'source should be mcp');
 });
 
 // ---------------------------------------------------------------------------
@@ -472,4 +596,42 @@ test('analyzeToolCuration: estimatedPromptBloat.totalTokens > 0 for unused tools
 	];
 	const result = analyzeToolCuration(available, emptyPeriod(), 30);
 	assert.ok(result.estimatedPromptBloat.totalTokens > 0);
+});
+
+test('analyzeToolCuration: does not flag extension-contributed server whose tools are disabled', () => {
+	const available = [
+		{
+			name: 'mcp__disabled',
+			description: 'Disabled MCP server',
+			source: 'mcp' as const,
+			server: 'disabled',
+			extensionId: 'pub.ext',
+			enabled: false,
+			extensionActive: true,
+		},
+	];
+	const result = analyzeToolCuration(available, emptyPeriod(), 30);
+
+	assert.equal(result.underusedMcpServers.length, 0, 'disabled extension server should not appear in underused list');
+	assert.equal(result.unusedTools.length, 0, 'disabled tools do not consume prompt budget');
+	assert.equal(result.recommendations.filter(r => r.type === 'disable-mcp-server').length, 0, 'no disable recommendation when already disabled');
+});
+
+test('analyzeToolCuration: still flags extension-contributed server whose tools are enabled but unused', () => {
+	const available = [
+		{
+			name: 'mcp__enabled',
+			description: 'Enabled but unused MCP server',
+			source: 'mcp' as const,
+			server: 'enabled',
+			extensionId: 'pub.ext',
+			enabled: true,
+			extensionActive: true,
+		},
+	];
+	const result = analyzeToolCuration(available, emptyPeriod(), 30);
+
+	assert.equal(result.underusedMcpServers.length, 1);
+	assert.equal(result.underusedMcpServers[0].enabled, true);
+	assert.equal(result.underusedMcpServers[0].extensionId, 'pub.ext');
 });

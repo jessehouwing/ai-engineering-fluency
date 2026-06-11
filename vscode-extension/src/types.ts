@@ -692,6 +692,14 @@ export interface AvailableToolEntry {
   skillPath?: string;
   /** Absolute path(s) of the config or skill file(s) this entry was discovered from. */
   configFiles?: string[];
+  /**
+   * For extension-contributed MCP server entries: true when at least one tool from
+   * the server is enabled in `vscode.lm.tools`, false when the user has disabled them
+   * in the chat tool picker (or the server hasn't started). Undefined when not applicable.
+   */
+  enabled?: boolean;
+  /** For extension-contributed entries: whether the contributing extension is currently activated. */
+  extensionActive?: boolean;
 }
 
 /** One actionable recommendation produced by curation analysis. */
@@ -715,7 +723,7 @@ export interface ToolCurationAnalysis {
   /** Available tools with zero invocations in the window. */
   unusedTools: AvailableToolEntry[];
   /** MCP servers with partial or zero tool usage. */
-  underusedMcpServers: { server: string; availableToolCount: number; usedToolCount: number; configFiles?: string[] }[];
+  underusedMcpServers: { server: string; availableToolCount: number; usedToolCount: number; configFiles?: string[]; extensionId?: string; enabled?: boolean; extensionActive?: boolean }[];
   /** Rough prompt-bloat estimate from unused tool descriptions. */
   estimatedPromptBloat: { totalTokens: number; byServer: Record<string, number> };
   /** Prioritised list of recommendations. */

@@ -99,6 +99,8 @@ interface AvailableToolEntry {
 	extensionId?: string;
 	skillPath?: string;
 	configFiles?: string[];
+	enabled?: boolean;
+	extensionActive?: boolean;
 }
 
 interface ToolCurationRecommendation {
@@ -113,7 +115,7 @@ interface ToolCurationAnalysis {
 	availableTools: AvailableToolEntry[];
 	usedTools: { name: string; count: number }[];
 	unusedTools: AvailableToolEntry[];
-	underusedMcpServers: { server: string; availableToolCount: number; usedToolCount: number; configFiles?: string[] }[];
+	underusedMcpServers: { server: string; availableToolCount: number; usedToolCount: number; configFiles?: string[]; extensionId?: string; enabled?: boolean; extensionActive?: boolean }[];
 	estimatedPromptBloat: { totalTokens: number; byServer: Record<string, number> };
 	recommendations: ToolCurationRecommendation[];
 }
@@ -1621,9 +1623,14 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 	const rows = zeroUsed.map(s => {
 		const b = bloat.byServer[s.server] ?? 0;
 		let fileLink: string;
-		if (!s.configFiles || s.configFiles.length === 0) {
-			// Unknown source (discovered at runtime only) — open generic picker
-			fileLink = `<button class="curation-file-btn" data-command="aiEngineeringFluency.openMcpJson" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Open MCP config file(s)">mcp.json</button>`;
+		if (s.extensionId) {
+			// Server contributed by an extension — VS Code's public API can't tell us whether
+			// the user has disabled this server's tools in the chat tool picker, so the only
+			// reliable action we can offer is opening the Extensions view for this extension.
+			fileLink = `<button class="curation-file-btn" data-command="manageExtension" data-extension-id="${escapeHtml(s.extensionId)}" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Open the Extensions view for ${escapeHtml(s.extensionId)} (disable or uninstall to reclaim prompt budget)">Manage Extension</button>`;
+		} else if (!s.configFiles || s.configFiles.length === 0) {
+			// Unknown source (runtime-only or settings) — open tools picker
+			fileLink = `<button class="curation-file-btn" data-command="openToolPicker" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Open VS Code tool selection menu">Select Tools</button>`;
 		} else if (s.configFiles.length === 1) {
 			// Exactly one source — open it directly
 			fileLink = `<button class="curation-file-btn" data-command="openFile" data-path="${escapeHtml(s.configFiles[0])}" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Open ${escapeHtml(s.configFiles[0])}">mcp.json</button>`;
@@ -1640,7 +1647,7 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 	}).join('');
 	return `<details style="margin-top:12px;">
 		<summary style="cursor:pointer; font-size:13px; font-weight:600; color:var(--text-primary); padding:6px 0;">
-			🔌 Unused MCP Servers (${zeroUsed.length})
+			🔌 MCP Servers with No Usage in Last 30 Days (${zeroUsed.length})
 		</summary>
 		<div style="margin-top:8px; overflow-x:auto;">
 			<table style="width:100%; border-collapse:collapse; font-size:12px;">
@@ -1652,7 +1659,7 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 				</tr></thead>
 				<tbody>${rows}</tbody>
 			</table>
-			<div style="margin-top:8px; font-size:11px; color:var(--text-muted);">💡 Open <code>.vscode/mcp.json</code> to disable unused servers.</div>
+			<div style="margin-top:8px; font-size:11px; color:var(--text-muted);">💡 Open <code>.vscode/mcp.json</code> to disable file-configured servers, or use <em>Manage Extension</em> to disable or uninstall an MCP-providing extension. (VS Code does not expose per-server picker state to extensions, so servers you disabled in the chat tool picker may still appear here.)</div>
 		</div>
 	</details>`;
 }
@@ -1890,6 +1897,8 @@ function wireCurationButtons(): void {
 		btn.addEventListener('click', () => {
 			const command = btn.getAttribute('data-command');
 			if (!command) { return; }
+			// eslint-disable-next-line no-console
+			console.log('[curation] button clicked, command =', command);
 			if (command === 'openFile') {
 				const filePath = btn.getAttribute('data-path');
 				if (filePath) { vscode.postMessage({ command: 'openFile', path: filePath }); }
@@ -1901,7 +1910,12 @@ function wireCurationButtons(): void {
 						vscode.postMessage({ command: 'openFileFromList', paths });
 					} catch { /* ignore malformed JSON */ }
 				}
+			} else if (command === 'manageExtension') {
+				const extensionId = btn.getAttribute('data-extension-id');
+				if (extensionId) { vscode.postMessage({ command: 'manageExtension', extensionId }); }
 			} else {
+				// eslint-disable-next-line no-console
+				console.log('[curation] posting message', { command });
 				vscode.postMessage({ command });
 			}
 		});

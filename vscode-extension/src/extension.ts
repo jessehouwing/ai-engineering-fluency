@@ -65,7 +65,9 @@ import type {
 // --- Tool curation ---
 import {
   enumerateRuntimeTools as _enumerateRuntimeTools,
+  enumerateExtensionMcpServers as _enumerateExtensionMcpServers,
   buildMcpEntriesFromJson as _buildMcpEntriesFromJson,
+  buildMcpEntriesFromSettings as _buildMcpEntriesFromSettings,
   discoverSkillEntries as _discoverSkillEntries,
   analyzeToolCuration as _analyzeToolCuration,
 } from './toolCuration';
@@ -657,6 +659,9 @@ class CopilotTokenTracker implements vscode.Disposable {
 	 * Returns true if the command was recognised and dispatched, false if it is panel-specific.
 	 */
 	private async dispatchSharedCommand(message: { command: string; [key: string]: any }): Promise<boolean> {
+		if (message.command === 'openToolPicker') {
+			this.log(`📨 dispatchSharedCommand received: ${message.command}`);
+		}
 		if (message.command === 'extensionPointAction' && typeof message.buttonId === 'string') {
 			return this.handleExtensionPointAction(message.buttonId);
 		}
@@ -674,6 +679,45 @@ class CopilotTokenTracker implements vscode.Disposable {
 					void vscode.window.showTextDocument(vscode.Uri.file(message.path));
 				}
 			},
+			openToolPicker:         async () => {
+				this.log('🔧 openToolPicker: handler invoked');
+				const allCommands = await vscode.commands.getCommands(true);
+				const configureToolsId = 'workbench.action.chat.configureTools';
+				const hasConfigure = allCommands.includes(configureToolsId);
+				this.log(`🔧 openToolPicker: '${configureToolsId}' registered = ${hasConfigure}`);
+
+				if (!hasConfigure) {
+					// Fallback for older VS Code: open chat panel + notify user
+					this.log('🔧 openToolPicker: command not registered, opening chat panel + notifying user');
+					await vscode.commands.executeCommand('workbench.action.chat.open');
+					void vscode.window.showInformationMessage(
+						'To manage tools, click the Tools (⚙) button in the GitHub Copilot Chat input area.'
+					);
+					return;
+				}
+
+				// ConfigureToolsAction requires:
+				//   1. chat in Agent mode (precondition)
+				//   2. a focused chat widget (chatWidgetService.lastFocusedWidget)
+				// Open + focus chat in agent mode first, then invoke the picker.
+				try {
+					this.log('🔧 openToolPicker: opening chat in agent mode');
+					await vscode.commands.executeCommand('workbench.action.chat.open', { mode: 'agent' });
+				} catch (err) {
+					this.log(`🔧 openToolPicker: chat.open failed: ${err instanceof Error ? err.message : String(err)}`);
+				}
+
+				try {
+					this.log(`🔧 openToolPicker: executing '${configureToolsId}'`);
+					await vscode.commands.executeCommand(configureToolsId);
+					this.log('🔧 openToolPicker: command executed successfully');
+				} catch (err) {
+					this.log(`🔧 openToolPicker: command failed: ${err instanceof Error ? err.message : String(err)}`);
+					void vscode.window.showErrorMessage(
+						`Could not open tool picker: ${err instanceof Error ? err.message : String(err)}`
+					);
+				}
+			},
 			openFileFromList:       async () => {
 				const paths: unknown = message.paths;
 				if (!Array.isArray(paths) || paths.length === 0) { return; }
@@ -685,6 +729,21 @@ class CopilotTokenTracker implements vscode.Disposable {
 				const items = stringPaths.map(p => ({ label: path.basename(path.dirname(p)) + '/' + path.basename(p), description: p, fsPath: p }));
 				const picked = await vscode.window.showQuickPick(items, { title: 'Open MCP config file', placeHolder: 'Select which config file to open' });
 				if (picked) { await vscode.window.showTextDocument(vscode.Uri.file(picked.fsPath)); }
+			},
+			manageExtension:        async () => {
+				// Open the Extensions view details pane for a specific extension.
+				// VS Code can't tell us whether the user disabled the extension's tools in the chat
+				// tool picker (no public API), so the only honest action we can offer for
+				// extension-contributed MCP servers is "go look at / uninstall the extension".
+				const extensionId = typeof message.extensionId === 'string' ? message.extensionId : '';
+				if (!extensionId) { return; }
+				try {
+					await vscode.commands.executeCommand('extension.open', extensionId);
+				} catch (err) {
+					this.log(`manageExtension: extension.open failed for ${extensionId}: ${err instanceof Error ? err.message : String(err)}`);
+					// Fallback: search the marketplace view for the extension ID
+					await vscode.commands.executeCommand('workbench.extensions.search', `@id:${extensionId}`);
+				}
 			},
 		};
 		const handler = handlers[message.command];
@@ -3074,17 +3133,34 @@ class CopilotTokenTracker implements vscode.Disposable {
 			const windowDays = vscode.workspace.getConfiguration('aiEngineeringFluency').get<number>('curation.timeWindowDays', 30);
 			const workspaceFolderPaths = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) ?? [];
 
-			// Collect available tools: VS Code runtime tools + mcp.json + skills.
+			// Collect available tools: VS Code runtime tools + mcp.json + extension-contributed + settings + skills.
 			const runtimeEntries = _enumerateRuntimeTools(vscode.lm.tools);
 			const mcpEntries = _buildMcpEntriesFromJson(workspaceFolderPaths);
+			// Build the set of MCP servers that currently have at least one tool enabled in
+			// `vscode.lm.tools`. Extension-contributed entries cross-reference against this
+			// set so we can mark them as enabled or disabled (and avoid recommending the user
+			// disable tools they've already disabled).
+			const enabledMcpServers = new Set<string>();
+			for (const e of runtimeEntries) {
+				if (e.source === 'mcp' && e.server) { enabledMcpServers.add(e.server); }
+			}
+			const extensionMcpEntries = _enumerateExtensionMcpServers(vscode.extensions.all, enabledMcpServers);
+			const settingsMcpServers = vscode.workspace.getConfiguration('mcp').get<Record<string, unknown>>('servers', {});
+			const settingsMcpEntries = _buildMcpEntriesFromSettings(settingsMcpServers);
 			const skillEntries = _discoverSkillEntries(workspaceFolderPaths);
 
 			// Merge: runtime entries already include MCP tools from vscode.lm.tools.
-			// Deduplicate MCP server entries (prefer runtime over mcp.json stubs).
+			// Deduplicate MCP server entries (prefer runtime over all static sources).
 			const runtimeServers = new Set(runtimeEntries.filter(e => e.source === 'mcp').map(e => e.server));
 			const uniqueMcpEntries = mcpEntries.filter(e => !runtimeServers.has(e.server));
+			const uniqueExtensionMcpEntries = extensionMcpEntries.filter(e => !runtimeServers.has(e.server) && !uniqueMcpEntries.some(m => m.server === e.server));
+			const uniqueSettingsMcpEntries = settingsMcpEntries.filter(e =>
+				!runtimeServers.has(e.server) &&
+				!uniqueMcpEntries.some(m => m.server === e.server) &&
+				!uniqueExtensionMcpEntries.some(m => m.server === e.server)
+			);
 
-			const availableTools = [...runtimeEntries, ...uniqueMcpEntries, ...skillEntries];
+			const availableTools = [...runtimeEntries, ...uniqueMcpEntries, ...uniqueExtensionMcpEntries, ...uniqueSettingsMcpEntries, ...skillEntries];
 			if (availableTools.length === 0) { return null; }
 
 			return _analyzeToolCuration(availableTools, last30Days, windowDays);
