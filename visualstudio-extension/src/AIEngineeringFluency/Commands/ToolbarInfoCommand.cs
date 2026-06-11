@@ -77,7 +77,14 @@ namespace AIEngineeringFluency.Commands
                     var secondaryStats = useMonth ? stats.Month : stats.Last30Days;
                     var secondaryLabel = useMonth ? "month" : "30d";
                     var secondary = FormatTokenCount(secondaryStats.Tokens);
-                    text = $"AI Engineering Fluency: {today} ({stats.Today.Tokens:N0}) | {secondaryLabel} {secondary} ({secondaryStats.Tokens:N0})";
+                    if (Options.ExtensionSettings.CompactNumbers)
+                    {
+                        text = $"AI Engineering Fluency: {today} | {secondaryLabel} {secondary}";
+                    }
+                    else
+                    {
+                        text = $"AI Engineering Fluency: {today} ({stats.Today.Tokens:N0}) | {secondaryLabel} {secondary} ({secondaryStats.Tokens:N0})";
+                    }
                 }
 
                 await _package.JoinableTaskFactory.SwitchToMainThreadAsync(_package.DisposalToken);
