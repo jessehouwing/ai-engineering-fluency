@@ -33,7 +33,7 @@ export function createEmptyChartPayload(now = new Date()) {
 /** Empty usage-analysis payload (no session files found). */
 export function createEmptyUsageAnalysisPayload(now = new Date()) {
 	return {
-		today: {}, last30Days: {}, month: {},
+		today: {}, last30Days: {}, month: {}, lastMonth: {},
 		locale: Intl.DateTimeFormat().resolvedOptions().locale,
 		lastUpdated: now.toISOString(), backendConfigured: false,
 	};

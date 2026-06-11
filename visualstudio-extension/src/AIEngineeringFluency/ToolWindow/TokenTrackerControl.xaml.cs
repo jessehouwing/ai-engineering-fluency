@@ -227,6 +227,7 @@ namespace AIEngineeringFluency.ToolWindow
                         today = new { },
                         last30Days = new { },
                         month = new { },
+                        lastMonth = new { },
                         locale = "en-US",
                         lastUpdated = DateTime.UtcNow.ToString("o"),
                         backendConfigured = false,
