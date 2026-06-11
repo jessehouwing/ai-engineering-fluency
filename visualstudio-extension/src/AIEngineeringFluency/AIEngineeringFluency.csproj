@@ -16,7 +16,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>AIEngineeringFluency</RootNamespace>
     <AssemblyName>AIEngineeringFluency</AssemblyName>
-    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <GeneratePkgDefFile>true</GeneratePkgDefFile>
@@ -53,6 +53,7 @@
     <Compile Include="Commands\ShowTokenTrackerCommand.cs" />
     <Compile Include="Commands\ToolbarInfoCommand.cs" />
     <Compile Include="Options\ExtensionSettings.cs" />
+    <Compile Include="Options\GeneralOptions.cs" />
     <Compile Include="Options\OptionsPage.cs" />
     <Compile Include="Data\Models.cs" />
     <Compile Include="Data\CliBridge.cs" />
@@ -121,6 +122,7 @@
     <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.6.36389" ExcludeAssets="runtime" NoWarn="NU1604" />
     <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="17.6.2164" NoWarn="NU1604" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2478.35" />
+    <PackageReference Include="Community.VisualStudio.Toolkit" Version="17.0.76.303" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
