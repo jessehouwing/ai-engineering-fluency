@@ -9,6 +9,7 @@ import type {
 	MissedPotentialWorkspace,
 	WorkspaceCustomizationMatrix,
 	TodaySessionSummary,
+	ToolCurationAnalysis,
 } from './types';
 import toolNamesData from './toolNames.json';
 import { resolveGuidMcpToolName } from './utils/toolUtils';
@@ -95,6 +96,8 @@ export interface InsightContext {
 	missedPotential: MissedPotentialWorkspace[];
 	customizationMatrix?: WorkspaceCustomizationMatrix | null;
 	todaySessions?: TodaySessionSummary[];
+	/** Optional — populated when tool-curation analysis has run. */
+	curationAnalysis?: ToolCurationAnalysis | null;
 }
 
 export interface InsightState {
@@ -807,6 +810,55 @@ export const INSIGHT_CATALOG: InsightDefinition[] = [
 		},
 		weight: 75,
 		allowToast: true,
+	},
+
+	// ── Tool Curation ─────────────────────────────────────────────────────────
+	{
+		id: 'unused-mcp-servers',
+		category: 'tools',
+		severity: 'opportunity',
+		title: '🔌 Unused MCP servers are adding prompt overhead',
+		buildBody: (ctx) => {
+			const unused = ctx.curationAnalysis?.underusedMcpServers.filter(s => s.usedToolCount === 0) ?? [];
+			const names = unused.slice(0, 3).map(s => `"${s.server}"`).join(', ');
+			const extra = unused.length > 3 ? ` (+${unused.length - 3} more)` : '';
+			const tokens = ctx.curationAnalysis?.estimatedPromptBloat.totalTokens ?? 0;
+			const tokenNote = tokens > 0 ? ` (est. ~${tokens.toLocaleString()} extra context tokens per interaction)` : '';
+			return `${unused.length} MCP server${unused.length > 1 ? 's' : ''} (${names}${extra}) ` +
+				`${unused.length > 1 ? 'have' : 'has'} not been used in the last ${ctx.curationAnalysis?.windowDays ?? 30} days${tokenNote}. ` +
+				`Disabling unused MCP servers reduces the tool-description context injected into every prompt, saving tokens and improving response focus. ` +
+				`Open \`.vscode/mcp.json\` to remove or comment out the unused server entries.`;
+		},
+		actionLabel: 'Open mcp.json',
+		actionCommand: 'aiEngineeringFluency.openMcpJson',
+		appliesTo: (ctx) => {
+			if (!ctx.curationAnalysis) { return false; }
+			return ctx.curationAnalysis.underusedMcpServers.some(s => s.usedToolCount === 0);
+		},
+		weight: 70,
+	},
+	{
+		id: 'stale-skills',
+		category: 'customization',
+		severity: 'tip',
+		title: '📚 Some skills haven\'t been used recently',
+		buildBody: (ctx) => {
+			const stale = ctx.curationAnalysis?.unusedTools.filter(t => t.source === 'skill') ?? [];
+			const names = stale.slice(0, 3).map(s => `"${s.name}"`).join(', ');
+			const extra = stale.length > 3 ? ` (+${stale.length - 3} more)` : '';
+			return `${stale.length} skill file${stale.length > 1 ? 's' : ''} (${names}${extra}) ` +
+				`${stale.length > 1 ? 'were' : 'was'} not invoked in the last ${ctx.curationAnalysis?.windowDays ?? 30} days. ` +
+				`Unused skills still occupy space in instruction-file contexts. ` +
+				`Consider updating their descriptions so Copilot selects them more reliably, or remove skills that are no longer needed.`;
+		},
+		actionLabel: 'View Tool Curation',
+		actionCommand: 'aiEngineeringFluency.openToolsTab',
+		appliesTo: (ctx) => {
+			if (!ctx.curationAnalysis) { return false; }
+			const stale = ctx.curationAnalysis.unusedTools.filter(t => t.source === 'skill');
+			return stale.length >= 2;
+		},
+		weight: 40,
 	},
 ];
 

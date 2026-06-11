@@ -28,7 +28,8 @@
     "../vscode-extension/src/workspaceHelpers.ts",
     "../vscode-extension/src/statsHelpers.ts",
     "../vscode-extension/src/adapters/**/*.ts",
-    "../vscode-extension/src/modelPricing.json"
+    "../vscode-extension/src/modelPricing.json",
+    "../vscode-extension/src/toolCuration.ts"
   ],
   "exclude": [
     "node_modules",

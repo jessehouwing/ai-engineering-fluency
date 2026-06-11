@@ -46,6 +46,11 @@
         "category": "AI Engineering Fluency"
       },
       {
+        "command": "aiEngineeringFluency.openMcpJson",
+        "title": "Open MCP Configuration (mcp.json)",
+        "category": "AI Engineering Fluency"
+      },
+      {
         "command": "aiEngineeringFluency.generateDiagnosticReport",
         "title": "Generate Diagnostic Report",
         "category": "AI Engineering Fluency"
@@ -371,6 +376,17 @@
           },
           "default": [],
           "description": "List of tool names to suppress from the 'Unknown Tools Found' section in the Usage Analysis dashboard. Useful for tools you are testing that don't yet have friendly display names."
+        },
+        "aiEngineeringFluency.curation.timeWindowDays": {
+          "type": "number",
+          "default": 30,
+          "enum": [7, 30, 90],
+          "enumDescriptions": [
+            "Look back 7 days when determining which tools are unused",
+            "Look back 30 days when determining which tools are unused (default)",
+            "Look back 90 days when determining which tools are unused"
+          ],
+          "description": "Number of days to look back when determining which tools are unused for the Tool Curation analysis."
         },
         "aiEngineeringFluency.toolFamilies": {
           "type": "array",

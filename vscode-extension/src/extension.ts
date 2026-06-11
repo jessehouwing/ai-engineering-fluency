@@ -59,7 +59,16 @@ import type {
   SessionRelationRef,
   EvaluatedInsight,
   InsightStateBag,
+  ToolCurationAnalysis,
 } from './types';
+
+// --- Tool curation ---
+import {
+  enumerateRuntimeTools as _enumerateRuntimeTools,
+  buildMcpEntriesFromJson as _buildMcpEntriesFromJson,
+  discoverSkillEntries as _discoverSkillEntries,
+  analyzeToolCuration as _analyzeToolCuration,
+} from './toolCuration';
 
 // --- Insights engine ---
 import {
@@ -660,9 +669,33 @@ class CopilotTokenTracker implements vscode.Disposable {
 			showDashboard:          () => this.showDashboard(),
 			showEnvironmental:      () => this.showEnvironmental(),
 			showFluencyLevelViewer: () => this.showFluencyLevelViewer(),
+			openFile:               () => {
+				if (typeof message.path === 'string' && message.path) {
+					void vscode.window.showTextDocument(vscode.Uri.file(message.path));
+				}
+			},
+			openFileFromList:       async () => {
+				const paths: unknown = message.paths;
+				if (!Array.isArray(paths) || paths.length === 0) { return; }
+				const stringPaths = paths.filter((p): p is string => typeof p === 'string');
+				if (stringPaths.length === 1) {
+					await vscode.window.showTextDocument(vscode.Uri.file(stringPaths[0]));
+					return;
+				}
+				const items = stringPaths.map(p => ({ label: path.basename(path.dirname(p)) + '/' + path.basename(p), description: p, fsPath: p }));
+				const picked = await vscode.window.showQuickPick(items, { title: 'Open MCP config file', placeHolder: 'Select which config file to open' });
+				if (picked) { await vscode.window.showTextDocument(vscode.Uri.file(picked.fsPath)); }
+			},
 		};
 		const handler = handlers[message.command];
-		if (!handler) { return false; }
+		if (!handler) {
+			// Forward fully-qualified extension commands (e.g. from insight card buttons)
+			if (message.command.startsWith('aiEngineeringFluency.')) {
+				await vscode.commands.executeCommand(message.command);
+				return true;
+			}
+			return false;
+		}
 		await this.dispatch(message.command, handler);
 		return true;
 	}
@@ -2502,6 +2535,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 			missedPotential: stats.missedPotential ?? [],
 			customizationMatrix: stats.customizationMatrix,
 			todaySessions: stats.todaySessions,
+			curationAnalysis: stats.curationAnalysis ?? null,
 		};
 		return _evaluateInsights(ctx, this._insightStateBag, cadenceDays, this._lastInsightNudgeAt);
 	}
@@ -3024,10 +3058,101 @@ class CopilotTokenTracker implements vscode.Disposable {
 			lastUpdated: now,
 			customizationMatrix: this._lastCustomizationMatrix,
 			missedPotential: this._lastMissedPotential || [],
-			todaySessions: todaySessionsList.sort((a, b) => b.interactions - a.interactions)
+			todaySessions: todaySessionsList.sort((a, b) => b.interactions - a.interactions),
+			curationAnalysis: this.computeCurationAnalysis(last30DaysStats),
 		};
 		this.lastUsageAnalysisStats = stats;
 		return stats;
+	}
+
+	/**
+	 * Build a ToolCurationAnalysis from runtime tools + workspace files + recent usage.
+	 * Returns null when there are no available tools to analyse.
+	 */
+	private computeCurationAnalysis(last30Days: UsageAnalysisPeriod): ToolCurationAnalysis | null {
+		try {
+			const windowDays = vscode.workspace.getConfiguration('aiEngineeringFluency').get<number>('curation.timeWindowDays', 30);
+			const workspaceFolderPaths = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) ?? [];
+
+			// Collect available tools: VS Code runtime tools + mcp.json + skills.
+			const runtimeEntries = _enumerateRuntimeTools(vscode.lm.tools);
+			const mcpEntries = _buildMcpEntriesFromJson(workspaceFolderPaths);
+			const skillEntries = _discoverSkillEntries(workspaceFolderPaths);
+
+			// Merge: runtime entries already include MCP tools from vscode.lm.tools.
+			// Deduplicate MCP server entries (prefer runtime over mcp.json stubs).
+			const runtimeServers = new Set(runtimeEntries.filter(e => e.source === 'mcp').map(e => e.server));
+			const uniqueMcpEntries = mcpEntries.filter(e => !runtimeServers.has(e.server));
+
+			const availableTools = [...runtimeEntries, ...uniqueMcpEntries, ...skillEntries];
+			if (availableTools.length === 0) { return null; }
+
+			return _analyzeToolCuration(availableTools, last30Days, windowDays);
+		} catch (err) {
+			this.log(`⚠️ Tool curation analysis failed: ${String(err)}`);
+			return null;
+		}
+	}
+
+	async openMcpJson(): Promise<void> {
+		const fs = require('fs') as typeof import('fs');
+		const path = require('path') as typeof import('path');
+		const os = require('os') as typeof import('os');
+
+		// Collect all candidate paths (workspace + user-level), keeping only those that exist.
+		const folderPaths = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) ?? [];
+		const candidates: { label: string; fsPath: string }[] = [];
+
+		const workspaceCandidates = folderPaths.flatMap(folder => [
+			{ label: '.vscode/mcp.json', fsPath: path.join(folder, '.vscode', 'mcp.json') },
+			{ label: '.mcp.json (repo root)', fsPath: path.join(folder, '.mcp.json') },
+			{ label: '.vs/mcp.json', fsPath: path.join(folder, '.vs', 'mcp.json') },
+			{ label: '.cursor/mcp.json', fsPath: path.join(folder, '.cursor', 'mcp.json') },
+		]);
+		const home = process.env.USERPROFILE ?? process.env.HOME ?? os.homedir();
+		const userCandidate = { label: `~/.mcp.json (user-global)`, fsPath: path.join(home, '.mcp.json') };
+
+		for (const c of [...workspaceCandidates, userCandidate]) {
+			if (fs.existsSync(c.fsPath)) {
+				candidates.push(c);
+			}
+		}
+
+		if (candidates.length === 0) {
+			// No files exist — offer to create one
+			const target = folderPaths.length > 0
+				? path.join(folderPaths[0], '.vscode', 'mcp.json')
+				: path.join(home, '.mcp.json');
+			const choice = await vscode.window.showInformationMessage(
+				`No mcp.json files found. Create ${target}?`,
+				'Create', 'Cancel',
+			);
+			if (choice !== 'Create') { return; }
+			const dir = path.dirname(target);
+			if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+			fs.writeFileSync(target, JSON.stringify({ servers: {} }, null, 2));
+			await vscode.window.showTextDocument(vscode.Uri.file(target));
+			return;
+		}
+
+		if (candidates.length === 1) {
+			await vscode.window.showTextDocument(vscode.Uri.file(candidates[0].fsPath));
+			return;
+		}
+
+		// Multiple files — show a quick pick
+		const items: (vscode.QuickPickItem & { fsPath: string })[] = candidates.map(c => ({
+			label: c.label,
+			description: c.fsPath,
+			fsPath: c.fsPath,
+		}));
+		const picked = await vscode.window.showQuickPick(items, {
+			title: 'Open MCP config file',
+			placeHolder: 'Select which mcp.json to open',
+		});
+		if (picked) {
+			await vscode.window.showTextDocument(vscode.Uri.file(picked.fsPath));
+		}
 	}
 
 	private createEmptyUsagePeriod(): UsageAnalysisPeriod {
@@ -5354,9 +5479,9 @@ class CopilotTokenTracker implements vscode.Disposable {
 	public async showUsageAnalysis(): Promise<void> {
 		this.log('📊 Opening Usage Analysis dashboard');
 		if (this.analysisPanel) {
-			this.log('📊 Closing existing panel to refresh data...');
-			this.analysisPanel.dispose();
-			this.analysisPanel = undefined;
+			this.log('📊 Revealing existing Usage Analysis panel');
+			this.analysisPanel.reveal(vscode.ViewColumn.One, false);
+			return;
 		}
 		this.analysisPanel = vscode.window.createWebviewPanel(
 			'copilotUsageAnalysis', 'AI Usage Analysis',
@@ -5378,6 +5503,12 @@ class CopilotTokenTracker implements vscode.Disposable {
 	public async showUsageAnalysisOnInsightsTab(): Promise<void> {
 		await this.showUsageAnalysis();
 		void this.analysisPanel?.webview.postMessage({ command: 'switchTab', tab: 'insights' });
+	}
+
+	/** Opens the Usage Analysis panel and immediately activates the Tools & Integration tab. */
+	public async showUsageAnalysisOnToolsTab(): Promise<void> {
+		await this.showUsageAnalysis();
+		void this.analysisPanel?.webview.postMessage({ command: 'switchTab', tab: 'tools', anchor: 'section-tool-curation' });
 	}
 
 	private async handleAnalysisMessage(message: any): Promise<void> {
@@ -5480,6 +5611,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 					currentWorkspacePaths: vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) ?? [],
 					todaySessions: analysisStats.todaySessions || [],
 					insights: this.buildCurrentInsights(analysisStats),
+					curationAnalysis: analysisStats.curationAnalysis ?? null,
 				},
 			});
 		} catch (err) {
@@ -8281,6 +8413,7 @@ ${this.getLoadingHtmlScript()}
       todaySessions: stats.todaySessions || [],
       use24HourTime: this.getUse24HourTimeSetting(),
       insights: this.buildCurrentInsights(stats),
+      curationAnalysis: stats.curationAnalysis ?? null,
     }).replace(/</g, "\\u003c") : 'null';
 
     return `<!DOCTYPE html>
@@ -8565,6 +8698,38 @@ function setupBackend(context: vscode.ExtensionContext, tokenTracker: CopilotTok
   }
 }
 
+function registerSecondaryViewCommands(context: vscode.ExtensionContext, tokenTracker: CopilotTokenTracker): void {
+  const showMaturityCommand = vscode.commands.registerCommand(
+    "aiEngineeringFluency.showMaturity",
+    async () => {
+      tokenTracker.log("Show maturity command called");
+      await tokenTracker.showMaturity();
+    },
+  );
+  const showDashboardCommand = vscode.commands.registerCommand(
+    "aiEngineeringFluency.showDashboard",
+    async () => {
+      tokenTracker.log("Show dashboard command called");
+      await tokenTracker.showDashboard();
+    },
+  );
+  const showEnvironmentalCommand = vscode.commands.registerCommand(
+    "aiEngineeringFluency.showEnvironmental",
+    async () => {
+      tokenTracker.log("Show environmental impact command called");
+      await tokenTracker.showEnvironmental();
+    },
+  );
+  const openMcpJsonCommand = vscode.commands.registerCommand(
+    "aiEngineeringFluency.openMcpJson",
+    async () => {
+      tokenTracker.log("Open mcp.json command called");
+      await tokenTracker.openMcpJson();
+    },
+  );
+  context.subscriptions.push(showMaturityCommand, showDashboardCommand, showEnvironmentalCommand, openMcpJsonCommand);
+}
+
 function registerViewCommands(context: vscode.ExtensionContext, tokenTracker: CopilotTokenTracker): void {
   const refreshCommand = vscode.commands.registerCommand(
     "aiEngineeringFluency.refresh",
@@ -8607,40 +8772,16 @@ function registerViewCommands(context: vscode.ExtensionContext, tokenTracker: Co
     },
   );
 
-  const showMaturityCommand = vscode.commands.registerCommand(
-    "aiEngineeringFluency.showMaturity",
+  const openToolsTabCommand = vscode.commands.registerCommand(
+    "aiEngineeringFluency.openToolsTab",
     async () => {
-      tokenTracker.log("Show maturity command called");
-      await tokenTracker.showMaturity();
+      tokenTracker.log("Open Tools tab command called");
+      await tokenTracker.showUsageAnalysisOnToolsTab();
     },
   );
 
-  const showDashboardCommand = vscode.commands.registerCommand(
-    "aiEngineeringFluency.showDashboard",
-    async () => {
-      tokenTracker.log("Show dashboard command called");
-      await tokenTracker.showDashboard();
-    },
-  );
-
-  const showEnvironmentalCommand = vscode.commands.registerCommand(
-    "aiEngineeringFluency.showEnvironmental",
-    async () => {
-      tokenTracker.log("Show environmental impact command called");
-      await tokenTracker.showEnvironmental();
-    },
-  );
-
-  context.subscriptions.push(
-    refreshCommand,
-    showDetailsCommand,
-    showChartCommand,
-    showUsageAnalysisCommand,
-    openInsightsTabCommand,
-    showMaturityCommand,
-    showDashboardCommand,
-    showEnvironmentalCommand,
-  );
+  context.subscriptions.push(refreshCommand, showDetailsCommand, showChartCommand, showUsageAnalysisCommand, openInsightsTabCommand, openToolsTabCommand);
+  registerSecondaryViewCommands(context, tokenTracker);
 }
 
 function formatWindsurfDiagnosticsContent(diagnostics: any): string {

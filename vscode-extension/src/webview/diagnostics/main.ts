@@ -419,34 +419,33 @@ function compareSessionFiles(a: SessionFileDetails, b: SessionFileDetails): numb
   return currentSortDirection === "desc" ? bNum - aNum : aNum - bNum;
 }
 
-function sortSessionFiles(files: SessionFileDetails[]): SessionFileDetails[] {
-  const sorted = [...files].sort(compareSessionFiles);
-
-  // After sorting, group each child session immediately after its parent.
-  // Children whose parent is not in the list stay in their sorted position.
-  const byFile = new Map<string, SessionFileDetails>();
-  for (const f of sorted) { byFile.set(f.file, f); }
-
+function groupChildrenAfterParents(
+  sorted: SessionFileDetails[],
+  byFile: Map<string, SessionFileDetails>,
+): SessionFileDetails[] {
   const placed = new Set<string>();
   const result: SessionFileDetails[] = [];
-
   for (const f of sorted) {
-    if (placed.has(f.file)) { continue; } // already emitted as a child of an earlier parent
+    if (placed.has(f.file)) { continue; }
     result.push(f);
     placed.add(f.file);
-    // Emit any children of this session immediately after it
-    if (f.childInfo && f.childInfo.length > 0) {
-      for (const childRef of f.childInfo) {
-        if (!childRef.sessionFile) { continue; }
-        const childDetails = byFile.get(childRef.sessionFile);
-        if (childDetails && !placed.has(childDetails.file)) {
-          result.push(childDetails);
-          placed.add(childDetails.file);
-        }
+    for (const childRef of f.childInfo ?? []) {
+      if (!childRef.sessionFile) { continue; }
+      const childDetails = byFile.get(childRef.sessionFile);
+      if (childDetails && !placed.has(childDetails.file)) {
+        result.push(childDetails);
+        placed.add(childDetails.file);
       }
     }
   }
   return result;
+}
+
+function sortSessionFiles(files: SessionFileDetails[]): SessionFileDetails[] {
+  const sorted = [...files].sort(compareSessionFiles);
+  const byFile = new Map<string, SessionFileDetails>();
+  for (const f of sorted) { byFile.set(f.file, f); }
+  return groupChildrenAfterParents(sorted, byFile);
 }
 
 function getSortIndicator(column: typeof currentSortColumn): string {

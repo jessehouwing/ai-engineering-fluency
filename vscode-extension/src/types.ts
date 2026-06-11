@@ -427,6 +427,8 @@ lastUpdated: Date;
 customizationMatrix?: WorkspaceCustomizationMatrix;
 missedPotential?: MissedPotentialWorkspace[];
 todaySessions?: TodaySessionSummary[];
+/** Optional tool curation analysis (VS Code only; absent in CLI/VS/JetBrains). */
+curationAnalysis?: ToolCurationAnalysis | null;
 }
 
 /** Matrix types used for Usage Analysis customization matrix */
@@ -668,4 +670,54 @@ export interface EvaluatedInsight {
   actionCommand?: string;
   status: InsightStatus;
   allowToast?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Tool Curation
+// ---------------------------------------------------------------------------
+
+/** A single tool entry from an enumerated "available tools" source. */
+export interface AvailableToolEntry {
+  /** Raw tool ID (e.g. `mcp__github__get_file_contents`). */
+  name: string;
+  /** Human-readable description. */
+  description: string;
+  /** Where this tool comes from. */
+  source: 'builtin' | 'mcp' | 'extension' | 'skill';
+  /** MCP server name when `source === 'mcp'`. */
+  server?: string;
+  /** VS Code extension ID when `source === 'extension'`. */
+  extensionId?: string;
+  /** Skill file path (relative) when `source === 'skill'`. */
+  skillPath?: string;
+  /** Absolute path(s) of the config or skill file(s) this entry was discovered from. */
+  configFiles?: string[];
+}
+
+/** One actionable recommendation produced by curation analysis. */
+export interface ToolCurationRecommendation {
+  type: 'disable-mcp-server' | 'disable-extension' | 'refine-skill' | 'remove-skill';
+  /** Server name, extension ID, or skill name that the recommendation targets. */
+  target: string;
+  reason: string;
+  /** Estimated context-window token savings per interaction (rough). */
+  estimatedTokenSavings?: number;
+}
+
+/** Full result of a tool-curation analysis run. */
+export interface ToolCurationAnalysis {
+  /** Look-back window (days) used to determine "unused". */
+  windowDays: number;
+  /** All tools discovered from available sources. */
+  availableTools: AvailableToolEntry[];
+  /** Tools that were actually invoked within the window (name → call count). */
+  usedTools: { name: string; count: number }[];
+  /** Available tools with zero invocations in the window. */
+  unusedTools: AvailableToolEntry[];
+  /** MCP servers with partial or zero tool usage. */
+  underusedMcpServers: { server: string; availableToolCount: number; usedToolCount: number; configFiles?: string[] }[];
+  /** Rough prompt-bloat estimate from unused tool descriptions. */
+  estimatedPromptBloat: { totalTokens: number; byServer: Record<string, number> };
+  /** Prioritised list of recommendations. */
+  recommendations: ToolCurationRecommendation[];
 }
