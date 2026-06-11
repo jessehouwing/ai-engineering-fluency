@@ -172,6 +172,7 @@
     <MakeDir Directories="$(MSBuildProjectDirectory)\webview" />
     <Copy SourceFiles="@(_WebviewBundle)" DestinationFolder="$(MSBuildProjectDirectory)\webview\" SkipUnchangedFiles="true" ContinueOnError="true" />
     <Message Importance="high" Text="Copied webview bundles from vscode-extension/dist/webview/ — rebuild vscode-extension if they are missing." />
+
   </Target>
   <!-- Include copied webview JS files inside the VSIX package -->
   <ItemGroup>
@@ -186,17 +187,52 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
-  <!-- Include the bundled CLI executable and runtime assets inside the VSIX package -->
+  <!--
+    Copy cli-bundle files to the output directory so the extension DLL can find them
+    when loaded from bin\Debug or bin\Release (not from the VSIX).
+    VSIX packaging is handled separately by the AddCliBundleToVsix target below.
+  -->
   <ItemGroup>
-    <Content Include="cli-bundle\copilot-token-tracker.exe" Condition="Exists('$(MSBuildProjectDirectory)\cli-bundle\copilot-token-tracker.exe')">
-      <IncludeInVSIX>true</IncludeInVSIX>
-      <VSIXSubPath>cli-bundle\</VSIXSubPath>
+    <Content Include="$(MSBuildProjectDirectory)\cli-bundle\copilot-token-tracker.exe"
+             Condition="Exists('$(MSBuildProjectDirectory)\cli-bundle\copilot-token-tracker.exe')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>cli-bundle\copilot-token-tracker.exe</Link>
     </Content>
-    <Content Include="cli-bundle\sql-wasm.wasm" Condition="Exists('$(MSBuildProjectDirectory)\cli-bundle\sql-wasm.wasm')">
-      <IncludeInVSIX>true</IncludeInVSIX>
-      <VSIXSubPath>cli-bundle\</VSIXSubPath>
+    <Content Include="$(MSBuildProjectDirectory)\cli-bundle\sql-wasm.wasm"
+             Condition="Exists('$(MSBuildProjectDirectory)\cli-bundle\sql-wasm.wasm')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>cli-bundle\sql-wasm.wasm</Link>
     </Content>
   </ItemGroup>
+
+  <!--
+    Add the bundled CLI exe and associated wasm into the VSIX by directly injecting
+    VSIXSourceItem entries immediately before GetVsixSourceItems collects them.
+
+    Why BeforeTargets="GetVsixSourceItems" and NOT BeforeTargets="Build":
+      CreateVsixContainer is triggered by PrepareForRun (not Build). The CopyWebviewBundles
+      target (BeforeTargets="Build") does NOT run in the PrepareForRun path, so any Content
+      items added there are invisible to GetVsixSourceItems.
+
+    Why we also delete $(FileManifest) (files.json):
+      GenerateFileManifest has only Outputs (no Inputs), so it is skipped whenever
+      files.json already exists — even if the item list has changed. Deleting it here
+      (when cli-bundle is present) forces GenerateFileManifest to regenerate files.json
+      with the cli-bundle entries included, so VsixUtil packages them correctly.
+  -->
+  <Target Name="AddCliBundleToVsix" BeforeTargets="GetVsixSourceItems">
+    <!-- Force files.json to regenerate so cli-bundle entries are included. -->
+    <Delete Files="$(FileManifest)"
+            Condition="Exists('$(MSBuildProjectDirectory)\cli-bundle\copilot-token-tracker.exe') AND Exists('$(FileManifest)')" />
+    <ItemGroup>
+      <VSIXSourceItem Include="$(MSBuildProjectDirectory)\cli-bundle\copilot-token-tracker.exe"
+                      Condition="Exists('$(MSBuildProjectDirectory)\cli-bundle\copilot-token-tracker.exe')">
+        <VSIXSubPath>cli-bundle\</VSIXSubPath>
+      </VSIXSourceItem>
+      <VSIXSourceItem Include="$(MSBuildProjectDirectory)\cli-bundle\sql-wasm.wasm"
+                      Condition="Exists('$(MSBuildProjectDirectory)\cli-bundle\sql-wasm.wasm')">
+        <VSIXSubPath>cli-bundle\</VSIXSubPath>
+      </VSIXSourceItem>
+    </ItemGroup>
+  </Target>
 </Project>
