@@ -392,7 +392,16 @@ function computeUnderusedMcpServers(
 	}
 	return Array.from(mcpServers).map(server => {
 		const serverTools = availableTools.filter(t => t.source === 'mcp' && t.server === server);
-		const usedServerTools = serverTools.filter(t => usedNames.has(t.name));
+		// For stub entries (created from mcp.json where name === `mcp__${server}`), `usedNames`
+		// contains full tool names like `mcp__server__toolname`, so an exact match will never
+		// fire.  Fall back to server-level usage count from `byServer` for these stubs.
+		const usedServerTools = serverTools.filter(t => {
+			const isStub = t.name === `mcp__${server}`;
+			if (isStub) {
+				return (usagePeriod.mcpTools.byServer[server] ?? 0) >= MCP_SERVER_USE_THRESHOLD;
+			}
+			return usedNames.has(t.name);
+		});
 		// Collect all distinct config files across all entries for this server
 		const configFiles = [...new Set(serverTools.flatMap(t => t.configFiles ?? []))];
 		// Pick up extensionId / enabled / extensionActive if any entry for this server was contributed by an extension
@@ -479,7 +488,9 @@ export function analyzeToolCuration(
 
 	const unusedTools = availableTools.filter(t => {
 		if (t.source === 'skill') {
-			return !Array.from(usedNames).some(u => u.includes(t.name));
+			// Skills are discovered by directory name; use exact match against the set of
+			// invoked tool names so that short names like "pdf" don't false-match unrelated tools.
+			return !usedNames.has(t.name);
 		}
 		if (t.source === 'mcp' && t.server) {
 			// Disabled extension-contributed servers don't consume prompt budget — don't count

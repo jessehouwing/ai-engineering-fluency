@@ -145,7 +145,7 @@ function printCurationReport(analysis: ToolCurationAnalysis): void {
 	}
 
 	if (usedTools.length > 0) {
-		process.stdout.write('Top Used Tools (last 30d):\n');
+		process.stdout.write(`Top Used Tools (last ${windowDays}d):\n`);
 		for (const t of usedTools.slice(0, 10)) {
 			process.stdout.write(`  ${String(t.count).padStart(5)}x  ${t.name}\n`);
 		}

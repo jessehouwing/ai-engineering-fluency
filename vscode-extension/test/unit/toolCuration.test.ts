@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -16,6 +16,23 @@ import {
 	type ExtensionInfo,
 } from '../../src/toolCuration';
 import type { UsageAnalysisPeriod } from '../../src/types';
+
+// ---------------------------------------------------------------------------
+// Temp directory registry — all dirs created via mkTmpDir() are removed after
+// the entire test suite completes (avoids accumulation in CI and dev machines).
+// ---------------------------------------------------------------------------
+
+const _tmpDirs: string[] = [];
+function mkTmpDir(prefix: string): string {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+	_tmpDirs.push(dir);
+	return dir;
+}
+after(() => {
+	for (const dir of _tmpDirs) {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -58,7 +75,7 @@ function emptyPeriod(): UsageAnalysisPeriod {
  * from leaking into workspace-isolation tests.
  */
 function withIsolatedHome<T>(fn: () => T): T {
-	const isolatedHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-isolated-home-'));
+	const isolatedHome = mkTmpDir('ctt-isolated-home-');
 	const origUserProfile = process.env.USERPROFILE;
 	const origHome = process.env.HOME;
 	process.env.USERPROFILE = isolatedHome;
@@ -68,6 +85,7 @@ function withIsolatedHome<T>(fn: () => T): T {
 	} finally {
 		if (origUserProfile === undefined) { delete process.env.USERPROFILE; } else { process.env.USERPROFILE = origUserProfile; }
 		if (origHome === undefined) { delete process.env.HOME; } else { process.env.HOME = origHome; }
+		fs.rmSync(isolatedHome, { recursive: true, force: true });
 	}
 }
 
@@ -251,7 +269,7 @@ test('parseMcpJson: returns empty array for non-existent file', () => {
 });
 
 test('parseMcpJson: parses server names from valid file', () => {
-	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-mcp-'));
+	const tmpDir = mkTmpDir('ctt-mcp-');
 	const mcpPath = path.join(tmpDir, 'mcp.json');
 	writeMcpJson(mcpPath, ['server-a', 'server-b']);
 	const result = parseMcpJson(mcpPath);
@@ -259,14 +277,14 @@ test('parseMcpJson: parses server names from valid file', () => {
 });
 
 test('parseMcpJson: returns empty array for file with no servers key', () => {
-	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-mcp-noservers-'));
+	const tmpDir = mkTmpDir('ctt-mcp-noservers-');
 	const mcpPath = path.join(tmpDir, 'mcp.json');
 	fs.writeFileSync(mcpPath, JSON.stringify({ inputs: [] }), 'utf8');
 	assert.deepEqual(parseMcpJson(mcpPath), []);
 });
 
 test('parseMcpJson: returns empty array for malformed JSON', () => {
-	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-mcp-bad-'));
+	const tmpDir = mkTmpDir('ctt-mcp-bad-');
 	const mcpPath = path.join(tmpDir, 'mcp.json');
 	fs.writeFileSync(mcpPath, '{ not valid json', 'utf8');
 	assert.deepEqual(parseMcpJson(mcpPath), []);
@@ -277,7 +295,7 @@ test('parseMcpJson: returns empty array for malformed JSON', () => {
 // ---------------------------------------------------------------------------
 
 test('buildMcpEntriesFromJson: discovers servers from .vscode/mcp.json', () => {
-	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-mcp-vscode-'));
+	const tmpDir = mkTmpDir('ctt-mcp-vscode-');
 	writeMcpJson(path.join(tmpDir, '.vscode', 'mcp.json'), ['vscode-server']);
 
 	const result = buildMcpEntriesFromJson([tmpDir]);
@@ -291,7 +309,7 @@ test('buildMcpEntriesFromJson: discovers servers from .vscode/mcp.json', () => {
 // ---------------------------------------------------------------------------
 
 test('buildMcpEntriesFromJson: discovers servers from .mcp.json (VS repo-root)', () => {
-	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-mcp-vsroot-'));
+	const tmpDir = mkTmpDir('ctt-mcp-vsroot-');
 	writeMcpJson(path.join(tmpDir, '.mcp.json'), ['vs-root-server']);
 
 	const result = buildMcpEntriesFromJson([tmpDir]);
@@ -301,7 +319,7 @@ test('buildMcpEntriesFromJson: discovers servers from .mcp.json (VS repo-root)',
 });
 
 test('buildMcpEntriesFromJson: discovers servers from .vs/mcp.json (VS solution-scoped)', () => {
-	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-mcp-vs-'));
+	const tmpDir = mkTmpDir('ctt-mcp-vs-');
 	writeMcpJson(path.join(tmpDir, '.vs', 'mcp.json'), ['vs-solution-server']);
 
 	const result = buildMcpEntriesFromJson([tmpDir]);
@@ -311,7 +329,7 @@ test('buildMcpEntriesFromJson: discovers servers from .vs/mcp.json (VS solution-
 });
 
 test('buildMcpEntriesFromJson: discovers servers from .cursor/mcp.json', () => {
-	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-mcp-cursor-'));
+	const tmpDir = mkTmpDir('ctt-mcp-cursor-');
 	writeMcpJson(path.join(tmpDir, '.cursor', 'mcp.json'), ['cursor-server']);
 
 	const result = buildMcpEntriesFromJson([tmpDir]);
@@ -321,7 +339,7 @@ test('buildMcpEntriesFromJson: discovers servers from .cursor/mcp.json', () => {
 });
 
 test('buildMcpEntriesFromJson: deduplicates servers appearing in multiple config files', () => {
-	const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-mcp-dedup-'));
+	const tmpDir = mkTmpDir('ctt-mcp-dedup-');
 	// Same server name in two locations
 	writeMcpJson(path.join(tmpDir, '.vscode', 'mcp.json'), ['shared-server', 'vscode-only']);
 	writeMcpJson(path.join(tmpDir, '.mcp.json'), ['shared-server', 'root-only']);
@@ -337,8 +355,8 @@ test('buildMcpEntriesFromJson: deduplicates servers appearing in multiple config
 });
 
 test('buildMcpEntriesFromJson: deduplicates across multiple workspace folders', () => {
-	const tmpA = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-mcp-wsa-'));
-	const tmpB = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-mcp-wsb-'));
+	const tmpA = mkTmpDir('ctt-mcp-wsa-');
+	const tmpB = mkTmpDir('ctt-mcp-wsb-');
 	writeMcpJson(path.join(tmpA, '.vscode', 'mcp.json'), ['shared', 'only-a']);
 	writeMcpJson(path.join(tmpB, '.vscode', 'mcp.json'), ['shared', 'only-b']);
 
@@ -352,14 +370,14 @@ test('buildMcpEntriesFromJson: deduplicates across multiple workspace folders', 
 
 test('buildMcpEntriesFromJson: returns empty array when no config files exist', () => {
 	withIsolatedHome(() => {
-		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-mcp-empty-'));
+		const tmpDir = mkTmpDir('ctt-mcp-empty-');
 		assert.deepEqual(buildMcpEntriesFromJson([tmpDir]), []);
 	});
 });
 
 test('buildMcpEntriesFromJson: result entries have correct shape', () => {
 	withIsolatedHome(() => {
-		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-mcp-shape-'));
+		const tmpDir = mkTmpDir('ctt-mcp-shape-');
 		writeMcpJson(path.join(tmpDir, '.vscode', 'mcp.json'), ['my-server']);
 
 		const result = buildMcpEntriesFromJson([tmpDir]);
@@ -378,7 +396,7 @@ test('buildMcpEntriesFromJson: result entries have correct shape', () => {
 
 test('discoverSkillEntries: discovers skills from .github/skills/', () => {
 	withIsolatedHome(() => {
-		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-skills-github-'));
+		const tmpDir = mkTmpDir('ctt-skills-github-');
 		writeSkill(path.join(tmpDir, '.github', 'skills'), 'my-skill', 'Does something useful');
 
 		const result = discoverSkillEntries([tmpDir]);
@@ -396,7 +414,7 @@ test('discoverSkillEntries: discovers skills from .github/skills/', () => {
 
 test('discoverSkillEntries: discovers skills from .claude/skills/ (Visual Studio)', () => {
 	withIsolatedHome(() => {
-		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-skills-claude-'));
+		const tmpDir = mkTmpDir('ctt-skills-claude-');
 		writeSkill(path.join(tmpDir, '.claude', 'skills'), 'claude-skill');
 
 		const result = discoverSkillEntries([tmpDir]);
@@ -408,7 +426,7 @@ test('discoverSkillEntries: discovers skills from .claude/skills/ (Visual Studio
 
 test('discoverSkillEntries: discovers skills from .agents/skills/ (Visual Studio)', () => {
 	withIsolatedHome(() => {
-		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-skills-agents-'));
+		const tmpDir = mkTmpDir('ctt-skills-agents-');
 		writeSkill(path.join(tmpDir, '.agents', 'skills'), 'agents-skill');
 
 		const result = discoverSkillEntries([tmpDir]);
@@ -420,7 +438,7 @@ test('discoverSkillEntries: discovers skills from .agents/skills/ (Visual Studio
 
 test('discoverSkillEntries: discovers skills from all three workspace locations', () => {
 	withIsolatedHome(() => {
-		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-skills-all-'));
+		const tmpDir = mkTmpDir('ctt-skills-all-');
 		writeSkill(path.join(tmpDir, '.github', 'skills'), 'github-skill');
 		writeSkill(path.join(tmpDir, '.claude', 'skills'), 'claude-skill');
 		writeSkill(path.join(tmpDir, '.agents', 'skills'), 'agents-skill');
@@ -437,7 +455,7 @@ test('discoverSkillEntries: discovers skills from all three workspace locations'
 
 test('discoverSkillEntries: deduplicates skills with the same SKILL.md path', () => {
 	withIsolatedHome(() => {
-		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-skills-dedup-'));
+		const tmpDir = mkTmpDir('ctt-skills-dedup-');
 		// Same skill name in two different location dirs — different paths, no dedup expected
 		writeSkill(path.join(tmpDir, '.github', 'skills'), 'my-skill');
 		writeSkill(path.join(tmpDir, '.claude', 'skills'), 'my-skill');
@@ -451,8 +469,8 @@ test('discoverSkillEntries: deduplicates skills with the same SKILL.md path', ()
 
 test('discoverSkillEntries: deduplicates across multiple workspace folders', () => {
 	withIsolatedHome(() => {
-		const tmpA = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-skills-wsa-'));
-		const tmpB = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-skills-wsb-'));
+		const tmpA = mkTmpDir('ctt-skills-wsa-');
+		const tmpB = mkTmpDir('ctt-skills-wsb-');
 		writeSkill(path.join(tmpA, '.github', 'skills'), 'skill-a');
 		writeSkill(path.join(tmpB, '.github', 'skills'), 'skill-b');
 
@@ -466,14 +484,14 @@ test('discoverSkillEntries: deduplicates across multiple workspace folders', () 
 
 test('discoverSkillEntries: returns empty array when no skill dirs exist', () => {
 	withIsolatedHome(() => {
-		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-skills-none-'));
+		const tmpDir = mkTmpDir('ctt-skills-none-');
 		assert.deepEqual(discoverSkillEntries([tmpDir]), []);
 	});
 });
 
 test('discoverSkillEntries: ignores entries without SKILL.md', () => {
 	withIsolatedHome(() => {
-		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-skills-nomd-'));
+		const tmpDir = mkTmpDir('ctt-skills-nomd-');
 		const skillsDir = path.join(tmpDir, '.github', 'skills');
 		// Create a sub-directory but without SKILL.md
 		fs.mkdirSync(path.join(skillsDir, 'not-a-skill'), { recursive: true });
@@ -487,7 +505,7 @@ test('discoverSkillEntries: ignores entries without SKILL.md', () => {
 
 test('discoverSkillEntries: extracts description from SKILL.md', () => {
 	withIsolatedHome(() => {
-		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-skills-desc-'));
+		const tmpDir = mkTmpDir('ctt-skills-desc-');
 		writeSkill(path.join(tmpDir, '.github', 'skills'), 'desc-skill', 'This is the skill description');
 
 		const result = discoverSkillEntries([tmpDir]);
@@ -499,7 +517,7 @@ test('discoverSkillEntries: extracts description from SKILL.md', () => {
 
 test('discoverSkillEntries: falls back to "Skill: <name>" when no description found', () => {
 	withIsolatedHome(() => {
-		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-skills-fallback-'));
+		const tmpDir = mkTmpDir('ctt-skills-fallback-');
 		const skillsDir = path.join(tmpDir, '.github', 'skills', 'plain-skill');
 		fs.mkdirSync(skillsDir, { recursive: true });
 		fs.writeFileSync(path.join(skillsDir, 'SKILL.md'), 'Just some text without a description line.\n', 'utf8');
@@ -513,7 +531,7 @@ test('discoverSkillEntries: falls back to "Skill: <name>" when no description fo
 
 test('discoverSkillEntries: skillPath is relative and uses forward slashes', () => {
 	withIsolatedHome(() => {
-		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctt-skills-relpath-'));
+		const tmpDir = mkTmpDir('ctt-skills-relpath-');
 		writeSkill(path.join(tmpDir, '.github', 'skills'), 'rel-skill');
 
 		const result = discoverSkillEntries([tmpDir]);

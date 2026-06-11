@@ -94,7 +94,7 @@ Triggered when a skill file was **not invoked** during the look-back window. The
 
 | Command | Description |
 |---|---|
-| `aiEngineeringFluency.openMcpJson` | Opens the workspace `.vscode/mcp.json` file for editing. |
+| `aiEngineeringFluency.openMcpJson` | Opens the first MCP config file found in the workspace (checks `.vscode/mcp.json`, `.mcp.json`, `.vs/mcp.json`, `.cursor/mcp.json` and user `~/.mcp.json` in priority order; offers to create `.vscode/mcp.json` if none exist). |
 
 ## Architecture
 

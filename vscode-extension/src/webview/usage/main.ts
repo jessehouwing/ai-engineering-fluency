@@ -88,6 +88,9 @@ type UsageAnalysisStats = {
 };
 
 // ── Tool Curation types ──────────────────────────────────────────────────────
+// These mirror the interfaces in vscode-extension/src/types.ts.
+// They must be kept in sync manually because the webview bundle cannot import
+// extension-side TypeScript modules directly.
 
 type AvailableToolSource = 'builtin' | 'mcp' | 'extension' | 'skill';
 
@@ -218,8 +221,6 @@ interface RepoAnalysisRecord {
 }
 
 const vscode = acquireVsCodeApi();
-// Expose on window so inline onclick handlers in dynamically-built HTML can reach it.
-(window as unknown as Record<string, unknown>).vscode = vscode;
 type InitialUsageData = UsageAnalysisStats & { customizationMatrix?: WorkspaceCustomizationMatrix | null; missedPotential?: MissedPotentialWorkspace[] };
 const initialData = getWindowData<InitialUsageData>('__INITIAL_USAGE__');
 let hygieneMatrixState: WorkspaceCustomizationMatrix | null = null;
@@ -948,9 +949,21 @@ function sanitizeStats(raw: any): UsageAnalysisStats | null {
 			sanitized.insights = sanitizeInsights(raw.insights);
 		}
 
-		// Pass through curationAnalysis (already structured server-side)
+		// Pass through curationAnalysis (already structured server-side).
+		// Normalize required array/object fields so rendering paths don't throw on partial payloads.
 		if (raw.curationAnalysis && typeof raw.curationAnalysis === 'object') {
-			sanitized.curationAnalysis = raw.curationAnalysis as ToolCurationAnalysis;
+			const ca = raw.curationAnalysis as Partial<ToolCurationAnalysis>;
+			sanitized.curationAnalysis = {
+				windowDays: typeof ca.windowDays === 'number' ? ca.windowDays : 30,
+				availableTools: Array.isArray(ca.availableTools) ? ca.availableTools : [],
+				usedTools: Array.isArray(ca.usedTools) ? ca.usedTools : [],
+				unusedTools: Array.isArray(ca.unusedTools) ? ca.unusedTools : [],
+				underusedMcpServers: Array.isArray(ca.underusedMcpServers) ? ca.underusedMcpServers : [],
+				estimatedPromptBloat: ca.estimatedPromptBloat && typeof ca.estimatedPromptBloat === 'object'
+					? ca.estimatedPromptBloat
+					: { totalTokens: 0, byServer: {} },
+				recommendations: Array.isArray(ca.recommendations) ? ca.recommendations : [],
+			};
 		}
 
 		return sanitized;
@@ -1617,7 +1630,7 @@ function buildCurationSummaryHtml(availableTools: AvailableToolEntry[], unusedTo
 	</div>`;
 }
 
-function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underusedMcpServers'], bloat: ToolCurationAnalysis['estimatedPromptBloat']): string {
+function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underusedMcpServers'], bloat: ToolCurationAnalysis['estimatedPromptBloat'], windowDays: number): string {
 	const zeroUsed = underusedMcpServers.filter(s => s.usedToolCount === 0);
 	if (zeroUsed.length === 0) { return ''; }
 	const rows = zeroUsed.map(s => {
@@ -1647,7 +1660,7 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 	}).join('');
 	return `<details style="margin-top:12px;">
 		<summary style="cursor:pointer; font-size:13px; font-weight:600; color:var(--text-primary); padding:6px 0;">
-			🔌 MCP Servers with No Usage in Last 30 Days (${zeroUsed.length})
+			🔌 MCP Servers with No Usage in Last ${windowDays} Days (${zeroUsed.length})
 		</summary>
 		<div style="margin-top:8px; overflow-x:auto;">
 			<table style="width:100%; border-collapse:collapse; font-size:12px;">
@@ -1712,7 +1725,7 @@ function buildCurationSectionHtml(curation: ToolCurationAnalysis | null | undefi
 			<div class="section-title"><span>✂️</span><span>Tool Curation</span></div>
 			<div class="section-subtitle">Compare available tools against actual usage to reduce prompt overhead (last ${windowDays} days)</div>
 			${buildCurationSummaryHtml(availableTools, unusedTools, estimatedPromptBloat.totalTokens)}
-			${buildUnusedMcpHtml(underusedMcpServers, estimatedPromptBloat)}
+			${buildUnusedMcpHtml(underusedMcpServers, estimatedPromptBloat, windowDays)}
 			${buildUnusedSkillsHtml(unusedSkills)}
 			${recsHtml}
 		</div>`;
@@ -1897,8 +1910,6 @@ function wireCurationButtons(): void {
 		btn.addEventListener('click', () => {
 			const command = btn.getAttribute('data-command');
 			if (!command) { return; }
-			// eslint-disable-next-line no-console
-			console.log('[curation] button clicked, command =', command);
 			if (command === 'openFile') {
 				const filePath = btn.getAttribute('data-path');
 				if (filePath) { vscode.postMessage({ command: 'openFile', path: filePath }); }
@@ -1914,8 +1925,6 @@ function wireCurationButtons(): void {
 				const extensionId = btn.getAttribute('data-extension-id');
 				if (extensionId) { vscode.postMessage({ command: 'manageExtension', extensionId }); }
 			} else {
-				// eslint-disable-next-line no-console
-				console.log('[curation] posting message', { command });
 				vscode.postMessage({ command });
 			}
 		});
