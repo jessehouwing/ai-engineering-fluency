@@ -1623,13 +1623,13 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 		let fileLink: string;
 		if (!s.configFiles || s.configFiles.length === 0) {
 			// Unknown source (discovered at runtime only) — open generic picker
-			fileLink = `<button onclick="vscode.postMessage({command:'aiEngineeringFluency.openMcpJson'})" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Open MCP config file(s)">mcp.json</button>`;
+			fileLink = `<button class="curation-file-btn" data-command="aiEngineeringFluency.openMcpJson" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Open MCP config file(s)">mcp.json</button>`;
 		} else if (s.configFiles.length === 1) {
 			// Exactly one source — open it directly
-			fileLink = `<button onclick="vscode.postMessage({command:'openFile',path:${JSON.stringify(s.configFiles[0])}})" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Open ${escapeHtml(s.configFiles[0])}">mcp.json</button>`;
+			fileLink = `<button class="curation-file-btn" data-command="openFile" data-path="${escapeHtml(s.configFiles[0])}" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Open ${escapeHtml(s.configFiles[0])}">mcp.json</button>`;
 		} else {
 			// Multiple sources — show scoped picker with just these files
-			fileLink = `<button onclick="vscode.postMessage({command:'openFileFromList',paths:${JSON.stringify(s.configFiles)}})" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Defined in ${s.configFiles.length} config files">${s.configFiles.length} config files</button>`;
+			fileLink = `<button class="curation-file-btn" data-command="openFileFromList" data-paths="${escapeHtml(JSON.stringify(s.configFiles))}" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Defined in ${s.configFiles.length} config files">${s.configFiles.length} config files</button>`;
 		}
 		return `<tr>
 			<td style="padding:4px 8px; color:var(--text-primary); font-size:12px;">${escapeHtml(s.server)}${fileLink}</td>
@@ -1662,7 +1662,7 @@ function buildUnusedSkillsHtml(unusedSkills: AvailableToolEntry[]): string {
 	const rows = unusedSkills.map(s => {
 		const skillFile = s.configFiles?.[0];
 		const fileLink = skillFile
-			? `<button onclick="vscode.postMessage({command:'openFile',path:${JSON.stringify(skillFile)}})" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Open ${escapeHtml(skillFile)}">SKILL.md</button>`
+			? `<button class="curation-file-btn" data-command="openFile" data-path="${escapeHtml(skillFile)}" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Open ${escapeHtml(skillFile)}">SKILL.md</button>`
 			: '';
 		return `<tr>
 		<td style="padding:4px 8px; color:var(--text-primary); font-size:12px;">${escapeHtml(s.name)}${fileLink}</td>
@@ -1881,6 +1881,31 @@ function refreshInsightsPanel(insights: EvaluatedInsight[]): void {
 	container.innerHTML = forYouSection + allSection;
 	wireInsightCardButtons();
 	updateTabButtonCount(insights);
+}
+
+function wireCurationButtons(): void {
+	const section = document.getElementById('section-tool-curation');
+	if (!section) { return; }
+	section.querySelectorAll<HTMLButtonElement>('.curation-file-btn').forEach(btn => {
+		btn.addEventListener('click', () => {
+			const command = btn.getAttribute('data-command');
+			if (!command) { return; }
+			if (command === 'openFile') {
+				const filePath = btn.getAttribute('data-path');
+				if (filePath) { vscode.postMessage({ command: 'openFile', path: filePath }); }
+			} else if (command === 'openFileFromList') {
+				const pathsJson = btn.getAttribute('data-paths');
+				if (pathsJson) {
+					try {
+						const paths = JSON.parse(pathsJson) as string[];
+						vscode.postMessage({ command: 'openFileFromList', paths });
+					} catch { /* ignore malformed JSON */ }
+				}
+			} else {
+				vscode.postMessage({ command });
+			}
+		});
+	});
 }
 
 function wireInsightCardButtons(): void {
@@ -2314,6 +2339,7 @@ function renderLayout(stats: UsageAnalysisStats): void {
 
 	wireNavigationButtons();
 	wireRepositoryButtons();
+	wireCurationButtons();
 	renderRepositoryHygienePanels();
 	setupTabs();
 	wireCopyButtons();
@@ -2492,8 +2518,7 @@ function handleUpdateInsights(rawInsights: unknown): void {
 	refreshInsightsPanel(sanitized);
 }
 
-// Listen for messages from the extension
-registerMessageHandler<any>((message) => {
+function handleExtensionMessage(message: any): void {
 	switch (message.command) {
 		case 'repoAnalysisResults':
 			displayRepoAnalysisResults(message.data, message.workspacePath); break;
@@ -2523,20 +2548,25 @@ registerMessageHandler<any>((message) => {
 			break;
 		case 'updateInsights':
 			handleUpdateInsights(message.insights); break;
-		case 'switchTab': {
-			const btn = document.querySelector<HTMLButtonElement>(`.tab-button[data-tab="${String(message.tab)}"]`);
-			btn?.click();
-			if (message.anchor) {
-				const anchor = document.getElementById(String(message.anchor));
-				if (anchor) {
-					// Use setTimeout to let the tab panel become visible before scrolling
-					setTimeout(() => anchor.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
-				}
-			}
-			break;
+		case 'switchTab':
+			handleSwitchTab(message); break;
+	}
+}
+
+function handleSwitchTab(message: any): void {
+	const btn = document.querySelector<HTMLButtonElement>(`.tab-button[data-tab="${String(message.tab)}"]`);
+	btn?.click();
+	if (message.anchor) {
+		const anchor = document.getElementById(String(message.anchor));
+		if (anchor) {
+			// Use setTimeout to let the tab panel become visible before scrolling
+			setTimeout(() => anchor.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
 		}
 	}
-});
+}
+
+// Listen for messages from the extension
+registerMessageHandler<any>((message) => { handleExtensionMessage(message); });
 
 function getWorkspaceName(workspacePath: string): string {
 	const workspace = hygieneMatrixState?.workspaces.find((ws) => ws.workspacePath === workspacePath);
