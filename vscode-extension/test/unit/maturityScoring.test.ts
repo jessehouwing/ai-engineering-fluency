@@ -1015,3 +1015,238 @@ test('calculateMaturityScores: TU 2 servers in byServer but total=0 → "multipl
     assert.ok(tu.stage < 4, `expected TU < 4 (no MCP total), got ${tu.stage}`);
     assert.ok(tu.tips.some(t => t.toLowerCase().includes('multiple mcp')), 'tip should mention multiple MCP servers');
 });
+
+// 25 tests
+
+
+// ===========================================================================
+// 25 Targeted Tests for maturityScoring.ts Uncovered Branches
+// ===========================================================================
+
+// --- Model Switching Tests (3) ---
+
+test('PE: switchingFrequency > 0 with mixedTierSessions qualifies for model switching', () => {
+    const fd = emptyFd();
+    fd.switchingFreqSum = 100;
+    fd.switchingFreqCount = 5;
+    fd.mixedTierSessions = 1;
+    const pe = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Prompt Engineering')!;
+    assert.ok(pe.stage >= 3);
+});
+
+test('PE: mixedCostSessions > 0 triggers model switching boost to Stage 3', () => {
+    const fd = emptyFd();
+    fd.mixedCostSessions = 1;
+    const pe = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Prompt Engineering')!;
+    assert.ok(pe.stage >= 3);
+});
+
+test('PE: mixedTierSessions > 0 triggers model switching boost to Stage 3', () => {
+    const fd = emptyFd();
+    fd.mixedTierSessions = 1;
+    const pe = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Prompt Engineering')!;
+    assert.ok(pe.stage >= 3);
+});
+
+// --- Image/PromptFile Boosters Tests (3) ---
+
+test('CE: copilot.image in ctxByKind boosts to Stage 3', () => {
+    const fd = emptyFd();
+    fd.ctxFile = 1;
+    fd.ctxByKind = { 'copilot.image': 1 };
+    const ce = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Context Engineering')!;
+    assert.ok(ce.stage >= 3);
+});
+
+test('CE: promptFile in ctxByKind boosts to Stage 3', () => {
+    const fd = emptyFd();
+    fd.ctxFile = 1;
+    fd.ctxByKind = { promptFile: 1 };
+    const ce = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Context Engineering')!;
+    assert.ok(ce.stage >= 3);
+});
+
+test('CE: both copilot.image and promptFile boost to Stage 3', () => {
+    const fd = emptyFd();
+    fd.ctxFile = 1;
+    fd.ctxByKind = { 'copilot.image': 1, promptFile: 1 };
+    const ce = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Context Engineering')!;
+    assert.ok(ce.stage >= 3);
+});
+
+// --- Multi-file Edits Tests (3) ---
+
+test('AG: multiFileEdits > 0 boosts to Stage 2', () => {
+    const fd = emptyFd();
+    fd.multiFileEdits = 1;
+    const ag = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Agentic')!;
+    assert.ok(ag.stage >= 2);
+});
+
+test('AG: multiFileEdits >= 20 + avgFilesPerSession >= 3 reaches Stage 4', () => {
+    const fd = emptyFd();
+    fd.multiFileEdits = 20;
+    fd.filesPerEditSum = 60;
+    fd.filesPerEditCount = 20;
+    const ag = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Agentic')!;
+    assert.equal(ag.stage, 4);
+});
+
+test('AG: filesPerEditCount = 0 avoids division by zero', () => {
+    const fd = emptyFd();
+    fd.multiFileEdits = 5;
+    fd.filesPerEditSum = 0;
+    fd.filesPerEditCount = 0;
+    const ag = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Agentic')!;
+    assert.ok(ag.stage >= 2);
+});
+
+// --- MCP Server Detection Tests (2) ---
+
+test('TU: mcpTotal > 0 boosts to Stage 3', () => {
+    const fd = emptyFd();
+    fd.mcpTotal = 1;
+    fd.mcpByServer = { 'GitHub MCP': 1 };
+    const tu = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Tool Usage')!;
+    assert.ok(tu.stage >= 3);
+});
+
+test('TU: 2+ MCP servers reaches Stage 4', () => {
+    const fd = emptyFd();
+    fd.mcpTotal = 5;
+    fd.mcpByServer = { 'GitHub MCP': 3, 'Jira MCP': 2 };
+    const tu = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Tool Usage')!;
+    assert.equal(tu.stage, 4);
+});
+
+// --- Apply Rate Calculations Tests (2) ---
+
+test('WI: applyRateCount = 0 avoids division by zero', () => {
+    const fd = emptyFd();
+    fd.applyRateSum = 0;
+    fd.applyRateCount = 0;
+    fd.sessionCount = 3;
+    const wi = calculateFluencyScoreForTeamMember(fd, 3).categories.find(c => c.category === 'Workflow Integration')!;
+    assert.ok(wi.stage >= 2);
+});
+
+test('WI: avgApplyRate >= 50 boosts to Stage 2', () => {
+    const fd = emptyFd();
+    fd.applyRateSum = 100;
+    fd.applyRateCount = 2;
+    fd.sessionCount = 3;
+    const wi = calculateFluencyScoreForTeamMember(fd, 3).categories.find(c => c.category === 'Workflow Integration')!;
+    assert.ok(wi.stage >= 2);
+});
+
+// --- Customization Stages Tests (2) ---
+
+test('CU: 0 repos stays Stage 1', () => {
+    const fd = emptyFd();
+    const cu = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Customization')!;
+    assert.equal(cu.stage, 1);
+});
+
+test('CU: 3 unique models across all cost tiers boosts to Stage 3', () => {
+    const fd = emptyFd();
+    fd.standardModels = new Set(['gpt-4o']);
+    fd.premiumModels = new Set(['gpt-4-turbo']);
+    fd.lowCostModels = new Set(['gpt-4o-mini']);
+    const cu = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Customization')!;
+    assert.ok(cu.stage >= 3);
+});
+
+// --- Session Duration Tests (2) ---
+
+test('WI: session duration included when durationMsSum > 0', () => {
+    const fd = emptyFd();
+    fd.sessionCount = 5;
+    fd.durationMsSum = 300000;
+    fd.durationMsCount = 5;
+    const wi = calculateFluencyScoreForTeamMember(fd, 5).categories.find(c => c.category === 'Workflow Integration')!;
+    assert.ok(wi.stage >= 2);
+});
+
+test('WI: durationMsCount = 0 avoids division by zero', () => {
+    const fd = emptyFd();
+    fd.sessionCount = 5;
+    fd.durationMsSum = 0;
+    fd.durationMsCount = 0;
+    const wi = calculateFluencyScoreForTeamMember(fd, 5).categories.find(c => c.category === 'Workflow Integration')!;
+    assert.ok(wi.stage >= 2);
+});
+
+// --- Automatic vs Non-Automatic Tools Tests (2) ---
+
+test('TU: all automatic tools returns Stage 1', () => {
+    const fd = emptyFd();
+    fd.toolCallsByTool = { read_file: 5, list_directory: 3, grep: 2 };
+    const tu = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Tool Usage')!;
+    assert.equal(tu.stage, 1);
+});
+
+test('TU: mixed automatic and non-automatic tools', () => {
+    const fd = emptyFd();
+    fd.toolCallsByTool = { read_file: 5, editFiles: 3, run_in_terminal: 2 };
+    const tu = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Tool Usage')!;
+    assert.ok(tu.stage >= 2);
+});
+
+// --- Slash Command Detection Tests (2) ---
+
+test('PE: VS Code slash commands detected', () => {
+    const fd = emptyFd();
+    fd.askModeCount = 30;
+    fd.toolCallsByTool = { explain: 2, fix: 1, tests: 1 };
+    const pe = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Prompt Engineering')!;
+    assert.ok(pe.stage >= 3);
+});
+
+test('PE: Claude slash commands with __slash__ prefix detected', () => {
+    const fd = emptyFd();
+    fd.askModeCount = 30;
+    fd.toolCallsByTool = { __slash__review: 1, __slash__bug: 1, __slash__think: 1 };
+    const pe = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Prompt Engineering')!;
+    assert.ok(pe.stage >= 3);
+});
+
+// --- Additional Edge Cases (2) ---
+
+test('PE: switchingFreqCount = 0 avoids division by zero', () => {
+    const fd = emptyFd();
+    fd.switchingFreqSum = 100;
+    fd.switchingFreqCount = 0;
+    const pe = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Prompt Engineering')!;
+    assert.ok(pe.stage >= 1);
+});
+
+test('TU: workspaceAgentCount > 0 boosts to Stage 3', () => {
+    const fd = emptyFd();
+    fd.workspaceAgentCount = 1;
+    const tu = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Tool Usage')!;
+    assert.ok(tu.stage >= 3);
+});
+
+
+test('AG: editsAgentCount > 0 boosts to Stage 2', () => {
+    const fd = emptyFd();
+    fd.editsAgentCount = 1;
+    const ag = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Agentic')!;
+    assert.ok(ag.stage >= 2);
+});
+
+test('TU: mcpTotal = 0 with empty mcpByServer stays Stage 1', () => {
+    const fd = emptyFd();
+    fd.mcpTotal = 0;
+    fd.mcpByServer = {};
+    const tu = calculateFluencyScoreForTeamMember(fd, 0).categories.find(c => c.category === 'Tool Usage')!;
+    assert.equal(tu.stage, 1);
+});
+
+test('fmt: formats numbers with thousand separators in evidence', async () => {
+    const stats = emptyStats();
+    stats.last30Days.contextReferences.file = 1500;
+    const result = await calculateMaturityScores(undefined, async () => stats);
+    const ce = result.categories.find(c => c.category === 'Context Engineering')!;
+    assert.ok(ce.evidence.some(e => e.includes('1,500')), 'evidence should format 1500 as 1,500');
+});
