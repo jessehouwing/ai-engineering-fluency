@@ -16,6 +16,7 @@ namespace AIEngineeringFluency.Options
     public sealed class OptionsPage : DialogPage
     {
         private bool _compactNumbers = true;
+        private bool _showCostInToolbar = true;
         private ComparisonPeriod _toolbarComparisonPeriod = ComparisonPeriod.Last30Days;
 
         [Category("Display")]
@@ -25,6 +26,15 @@ namespace AIEngineeringFluency.Options
         {
             get => _compactNumbers;
             set => _compactNumbers = value;
+        }
+
+        [Category("Toolbar")]
+        [DisplayName("Show estimated cost in toolbar")]
+        [Description("Show the estimated Copilot UBB cost (in USD) for the comparison period next to the token count in the toolbar.")]
+        public bool ShowCostInToolbar
+        {
+            get => _showCostInToolbar;
+            set => _showCostInToolbar = value;
         }
 
         [Category("Toolbar")]
@@ -40,6 +50,7 @@ namespace AIEngineeringFluency.Options
         public void Apply()
         {
             ExtensionSettings.CompactNumbers = _compactNumbers;
+            ExtensionSettings.ShowCostInToolbar = _showCostInToolbar;
             ExtensionSettings.ToolbarComparisonPeriod = _toolbarComparisonPeriod;
         }
 
