@@ -1608,11 +1608,16 @@ function buildMcpToolsSectionHtml(
 		</div>`;
 }
 
-function buildCurationSummaryHtml(availableTools: AvailableToolEntry[], unusedTools: AvailableToolEntry[], totalBloat: number): string {
+function buildCurationSummaryHtml(availableTools: AvailableToolEntry[], unusedTools: AvailableToolEntry[], bloat: ToolCurationAnalysis['estimatedPromptBloat']): string {
 	const usedCount = availableTools.length - unusedTools.length;
 	const severityColor = unusedTools.length > 0 ? 'rgba(251,191,36,0.12)' : 'rgba(74,222,128,0.12)';
 	const severityBorder = unusedTools.length > 0 ? 'rgba(251,191,36,0.4)' : 'rgba(74,222,128,0.4)';
 	const unusedColor = unusedTools.length > 0 ? '#fbbf24' : '#4ade80';
+	const totalBloat = bloat.totalTokens;
+	const skillBloat = bloat.byServer['skill'] ?? 0;
+	const mcpBloat = totalBloat - skillBloat;
+	const fmt = (n: number) => n >= 1000 ? `~${Math.round(n / 1000)}K` : `~${n}`;
+	const bloatTitle = `${fmt(mcpBloat)} from unused MCP tools + ${fmt(skillBloat)} from unused skills`;
 	return `<div style="display:flex; gap:16px; flex-wrap:wrap; margin:12px 0;">
 		<div style="background:var(--bg-tertiary); border:1px solid var(--border-color); border-radius:6px; padding:10px 16px; min-width:120px; text-align:center;">
 			<div style="font-size:20px; font-weight:700; color:var(--text-primary);">${formatNumber(availableTools.length)}</div>
@@ -1626,9 +1631,10 @@ function buildCurationSummaryHtml(availableTools: AvailableToolEntry[], unusedTo
 			<div style="font-size:20px; font-weight:700; color:${unusedColor};">${formatNumber(unusedTools.length)}</div>
 			<div style="font-size:11px; color:var(--text-primary); opacity:0.75;">Unused</div>
 		</div>
-		${totalBloat > 0 ? `<div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:10px 16px; min-width:140px; text-align:center;">
-			<div style="font-size:20px; font-weight:700; color:#f87171;">~${totalBloat >= 1000 ? Math.round(totalBloat / 1000) + 'K' : totalBloat}</div>
+		${totalBloat > 0 ? `<div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:10px 16px; min-width:140px; text-align:center;" title="${escapeHtml(bloatTitle)}">
+			<div style="font-size:20px; font-weight:700; color:#f87171;">${fmt(totalBloat)}</div>
 			<div style="font-size:11px; color:var(--text-primary); opacity:0.75;">Est. overhead tokens</div>
+			<div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">${fmt(mcpBloat)} MCP + ${fmt(skillBloat)} skills</div>
 		</div>` : ''}
 	</div>`;
 }
@@ -1810,7 +1816,7 @@ function buildCurationSectionHtml(curation: ToolCurationAnalysis | null | undefi
 		<div id="section-tool-curation" class="section">
 			<div class="section-title"><span>✂️</span><span>Tool Curation</span></div>
 			<div class="section-subtitle" style="color:var(--text-primary); opacity:0.75;">Compare available tools against actual usage to reduce prompt overhead (last ${windowDays} days)</div>
-			${buildCurationSummaryHtml(availableTools, unusedTools, estimatedPromptBloat.totalTokens)}
+			${buildCurationSummaryHtml(availableTools, unusedTools, estimatedPromptBloat)}
 			${buildUnusedMcpHtml(underusedMcpServers, estimatedPromptBloat, windowDays)}
 			${buildUnusedSkillsHtml(unusedSkills)}
 			${recsHtml}
