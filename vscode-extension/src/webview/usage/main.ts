@@ -1616,19 +1616,19 @@ function buildCurationSummaryHtml(availableTools: AvailableToolEntry[], unusedTo
 	return `<div style="display:flex; gap:16px; flex-wrap:wrap; margin:12px 0;">
 		<div style="background:var(--bg-tertiary); border:1px solid var(--border-color); border-radius:6px; padding:10px 16px; min-width:120px; text-align:center;">
 			<div style="font-size:20px; font-weight:700; color:var(--text-primary);">${formatNumber(availableTools.length)}</div>
-			<div style="font-size:11px; color:var(--text-muted);">Available</div>
+			<div style="font-size:11px; color:var(--text-primary); opacity:0.75;">Available</div>
 		</div>
 		<div style="background:var(--bg-tertiary); border:1px solid var(--border-color); border-radius:6px; padding:10px 16px; min-width:120px; text-align:center;">
 			<div style="font-size:20px; font-weight:700; color:#4ade80;">${formatNumber(usedCount)}</div>
-			<div style="font-size:11px; color:var(--text-muted);">Used</div>
+			<div style="font-size:11px; color:var(--text-primary); opacity:0.75;">Used</div>
 		</div>
 		<div style="background:${severityColor}; border:1px solid ${severityBorder}; border-radius:6px; padding:10px 16px; min-width:120px; text-align:center;">
 			<div style="font-size:20px; font-weight:700; color:${unusedColor};">${formatNumber(unusedTools.length)}</div>
-			<div style="font-size:11px; color:var(--text-muted);">Unused</div>
+			<div style="font-size:11px; color:var(--text-primary); opacity:0.75;">Unused</div>
 		</div>
 		${totalBloat > 0 ? `<div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:10px 16px; min-width:140px; text-align:center;">
 			<div style="font-size:20px; font-weight:700; color:#f87171;">~${totalBloat >= 1000 ? Math.round(totalBloat / 1000) + 'K' : totalBloat}</div>
-			<div style="font-size:11px; color:var(--text-muted);">Est. overhead tokens</div>
+			<div style="font-size:11px; color:var(--text-primary); opacity:0.75;">Est. overhead tokens</div>
 		</div>` : ''}
 	</div>`;
 }
