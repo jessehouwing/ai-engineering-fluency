@@ -419,10 +419,9 @@ function computeUnderusedMcpServers(
 			extensionActive,
 		};
 	})
-	// Underused = fewer used than available, AND not already disabled by the user.
-	// Extension-contributed servers whose tools are disabled don't consume prompt budget,
-	// so there's nothing to recommend curating.
-	.filter(s => s.usedToolCount < s.availableToolCount && s.enabled !== false);
+	// Keep disabled extension servers out (they consume no prompt budget).
+	// Fully-used servers are still included so the UI can show them with the toggle.
+	.filter(s => s.enabled !== false);
 }
 
 function buildBloatEstimate(

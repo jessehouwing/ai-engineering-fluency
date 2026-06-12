@@ -1634,10 +1634,15 @@ function buildCurationSummaryHtml(availableTools: AvailableToolEntry[], unusedTo
 }
 
 function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underusedMcpServers'], bloat: ToolCurationAnalysis['estimatedPromptBloat'], windowDays: number): string {
-	// Show all servers with at least one unused tool, zero-usage first.
-	const allServers = [...underusedMcpServers].sort((a, b) => a.usedToolCount - b.usedToolCount);
+	// Show all servers, zero-usage first, then partially used, then fully used.
+	const allServers = [...underusedMcpServers].sort((a, b) => {
+		// Sort key: zero-usage → partial-usage → fully-used
+		const aKey = a.usedToolCount === 0 ? 0 : a.usedToolCount < a.availableToolCount ? 1 : 2;
+		const bKey = b.usedToolCount === 0 ? 0 : b.usedToolCount < b.availableToolCount ? 1 : 2;
+		return aKey !== bKey ? aKey - bKey : a.usedToolCount - b.usedToolCount;
+	});
 	if (allServers.length === 0) { return ''; }
-
+	const toggleId = 'mcp-hide-used-toggle';
 	/** Derive a human-readable scope label from a server's config files / extension id. */
 	function mcpSourceLabel(s: typeof allServers[0]): string {
 		if (s.extensionId) { return 'Extension'; }
@@ -1684,7 +1689,7 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 		} else {
 			actionCell = `<button class="curation-file-btn" data-command="openFileFromList" data-paths="${escapeHtml(JSON.stringify(s.configFiles))}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Defined in ${s.configFiles.length} config files">Change Tools</button>`;
 		}
-		return `<tr>
+		return `<tr class="${s.usedToolCount > 0 ? 'mcp-has-usage' : ''}">
 			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">${escapeHtml(s.server)}</td>
 			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;" title="${escapeHtml(sourceTip)}">${escapeHtml(sourceLabel)}${sourceOpenBtn}</td>
 			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${s.availableToolCount}</td>
@@ -1706,11 +1711,24 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 	} else {
 		mcpJsonLink = `<code>.vscode/mcp.json</code>`;
 	}
+	const usedCount = allServers.filter(s => s.usedToolCount > 0).length;
+	const unusedCount = allServers.length - usedCount;
 	return `<details style="margin-top:12px;" open>
 		<summary style="cursor:pointer; font-size:13px; font-weight:600; color:var(--text-primary); padding:6px 0;">
-			🔌 MCP Servers with Unused Tools in Last ${windowDays} Days (${allServers.length})
+			🔌 MCP Servers in Last ${windowDays} Days (${allServers.length})
 		</summary>
 		<div style="margin-top:8px; overflow-x:auto;">
+			<div style="margin-bottom:8px; display:flex; align-items:center; gap:8px;">
+				<label style="display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--text-primary); cursor:pointer; user-select:none;">
+					<input type="checkbox" id="${toggleId}" checked
+						onchange="document.querySelectorAll('.mcp-has-usage').forEach(function(r){r.style.display=this.checked?'none':''}.bind(this))">
+					Hide servers with usage
+				</label>
+				<span style="font-size:11px; color:var(--text-secondary);">${unusedCount} with no usage · ${usedCount} with usage</span>
+			</div>
+			<script>(function(){
+				document.querySelectorAll('.mcp-has-usage').forEach(function(r){r.style.display='none';});
+			}());</script>
 			<table style="width:100%; border-collapse:collapse; font-size:12px;">
 				<thead><tr style="border-bottom:1px solid var(--border-color);">
 					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Server</th>
