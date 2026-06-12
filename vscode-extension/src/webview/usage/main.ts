@@ -1656,11 +1656,19 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 			<td style="padding:5px 8px; font-size:12px;">${actionCell}</td>
 		</tr>`;
 	}).join('');
-	// Build the mcp.json open link for the footer tip
-	const anyFileConfigured = zeroUsed.some(s => s.configFiles && s.configFiles.length > 0 && !s.extensionId);
-	const mcpJsonLink = anyFileConfigured
-		? `<button class="curation-file-btn" data-command="openMcpJson" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Open MCP config file">.vscode/mcp.json</button>`
-		: `<code>.vscode/mcp.json</code>`;
+	// Find the best config file to link in the tip — prefer .vscode/mcp.json, then any file.
+	const allConfigFiles = [...new Set(
+		zeroUsed.filter(s => !s.extensionId).flatMap(s => s.configFiles ?? [])
+	)];
+	const preferredFile = allConfigFiles.find(f => f.replace(/\\/g, '/').endsWith('.vscode/mcp.json'))
+		?? allConfigFiles[0];
+	let mcpJsonLink: string;
+	if (preferredFile) {
+		const displayName = preferredFile.replace(/\\/g, '/').split('/').slice(-3).join('/');
+		mcpJsonLink = `<button class="curation-file-btn" data-command="openFile" data-path="${escapeHtml(preferredFile)}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="${escapeHtml(preferredFile)}">${escapeHtml(displayName)}</button>`;
+	} else {
+		mcpJsonLink = `<code>.vscode/mcp.json</code>`;
+	}
 	return `<details style="margin-top:12px;" open>
 		<summary style="cursor:pointer; font-size:13px; font-weight:600; color:var(--text-primary); padding:6px 0;">
 			🔌 MCP Servers with No Usage in Last ${windowDays} Days (${zeroUsed.length})
