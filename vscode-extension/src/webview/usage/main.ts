@@ -1636,8 +1636,32 @@ function buildCurationSummaryHtml(availableTools: AvailableToolEntry[], unusedTo
 function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underusedMcpServers'], bloat: ToolCurationAnalysis['estimatedPromptBloat'], windowDays: number): string {
 	const zeroUsed = underusedMcpServers.filter(s => s.usedToolCount === 0);
 	if (zeroUsed.length === 0) { return ''; }
+
+	/** Derive a human-readable scope label from a server's config files / extension id. */
+	function mcpSourceLabel(s: typeof zeroUsed[0]): string {
+		if (s.extensionId) { return 'Extension'; }
+		if (!s.configFiles || s.configFiles.length === 0) { return 'Settings'; }
+		const labels = new Set<string>();
+		for (const f of s.configFiles) {
+			const p = f.replace(/\\/g, '/');
+			if (p.includes('/.vscode/')) { labels.add('Workspace'); }
+			else if (p.includes('/.vs/')) { labels.add('Workspace (VS)'); }
+			else if (p.includes('/.cursor/')) { labels.add('Workspace (Cursor)'); }
+			else if (p.endsWith('/.mcp.json')) {
+				// Could be workspace root or user home — show last 2 segments as hint
+				const parts = p.split('/');
+				labels.add(parts.slice(-2).join('/'));
+			} else {
+				labels.add('Config file');
+			}
+		}
+		return [...labels].join(', ');
+	}
+
 	const rows = zeroUsed.map(s => {
 		const b = bloat.byServer[s.server] ?? 0;
+		const sourceLabel = mcpSourceLabel(s);
+		const sourceTip = s.configFiles?.join('\n') ?? s.extensionId ?? '';
 		let actionCell: string;
 		if (s.extensionId) {
 			actionCell = `<button class="curation-file-btn" data-command="manageExtension" data-extension-id="${escapeHtml(s.extensionId)}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Open the Extensions view for ${escapeHtml(s.extensionId)} (disable or uninstall to reclaim prompt budget)">Manage Extension</button>`;
@@ -1649,7 +1673,8 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 			actionCell = `<button class="curation-file-btn" data-command="openFileFromList" data-paths="${escapeHtml(JSON.stringify(s.configFiles))}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Defined in ${s.configFiles.length} config files">Change Tools</button>`;
 		}
 		return `<tr>
-			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${escapeHtml(s.server)}</td>
+			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">${escapeHtml(s.server)}</td>
+			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;" title="${escapeHtml(sourceTip)}">${escapeHtml(sourceLabel)}</td>
 			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${s.availableToolCount}</td>
 			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">0</td>
 			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${b > 0 ? `~${b.toLocaleString()} tokens` : '—'}</td>
@@ -1677,6 +1702,7 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 			<table style="width:100%; border-collapse:collapse; font-size:12px;">
 				<thead><tr style="border-bottom:1px solid var(--border-color);">
 					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Server</th>
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Source</th>
 					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Tools Available</th>
 					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Tools Used</th>
 					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Est. Overhead</th>
