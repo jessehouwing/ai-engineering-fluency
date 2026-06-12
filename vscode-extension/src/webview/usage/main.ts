@@ -1624,6 +1624,8 @@ function buildCurationSummaryHtml(availableTools: AvailableToolEntry[], unusedTo
 	if (builtinBloat > 0) { parts.push(`${fmt(builtinBloat)} built-in`); }
 	const bloatBreakdown = parts.join(' + ');
 	const bloatTitle = `${fmt(mcpBloat)} from unused MCP tools, ${fmt(skillBloat)} from unused skills, ${fmt(builtinBloat)} from built-in tools`;
+	const actionableBloat = mcpBloat + skillBloat;
+	const builtinNote = builtinBloat > 0 ? ` + ${fmt(builtinBloat)} built-in (not actionable)` : '';
 	return `<div style="display:flex; gap:16px; flex-wrap:wrap; margin:12px 0;">
 		<div style="background:var(--bg-tertiary); border:1px solid var(--border-color); border-radius:6px; padding:10px 16px; min-width:120px; text-align:center;">
 			<div style="font-size:20px; font-weight:700; color:var(--text-primary);">${formatNumber(availableTools.length)}</div>
@@ -1637,10 +1639,10 @@ function buildCurationSummaryHtml(availableTools: AvailableToolEntry[], unusedTo
 			<div style="font-size:20px; font-weight:700; color:${unusedColor};">${formatNumber(unusedTools.length)}</div>
 			<div style="font-size:11px; color:var(--text-primary); opacity:0.75;">Unused</div>
 		</div>
-		${totalBloat > 0 ? `<div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:10px 16px; min-width:140px; text-align:center;" title="${escapeHtml(bloatTitle)}">
-			<div style="font-size:20px; font-weight:700; color:#f87171;">${fmt(totalBloat)}</div>
-			<div style="font-size:11px; color:var(--text-primary); opacity:0.75;">Est. overhead tokens</div>
-			<div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">${escapeHtml(bloatBreakdown)}</div>
+		${actionableBloat > 0 ? `<div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:10px 16px; min-width:140px; text-align:center;" title="${escapeHtml(bloatTitle)}">
+			<div style="font-size:20px; font-weight:700; color:#f87171;">${fmt(actionableBloat)}</div>
+			<div style="font-size:11px; color:var(--text-primary); opacity:0.75;">Actionable overhead</div>
+			<div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">${escapeHtml(bloatBreakdown)}${builtinNote}</div>
 		</div>` : ''}
 	</div>`;
 }
@@ -1802,11 +1804,42 @@ function buildUnusedSkillsHtml(unusedSkills: AvailableToolEntry[]): string {
 	</details>`;
 }
 
+function buildBuiltinToolsHtml(builtinTools: AvailableToolEntry[], bloat: ToolCurationAnalysis['estimatedPromptBloat']): string {
+	if (builtinTools.length === 0) { return ''; }
+	const builtinBloat = bloat.byServer['builtin'] ?? 0;
+	const rows = builtinTools.map(t => {
+		const overhead = Math.round((t.name.length + (t.description?.length ?? 0) + 10) / 4);
+		return `<tr>
+			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">${escapeHtml(t.name)}</td>
+			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; max-width:400px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(t.description ?? '')}">${escapeHtml(t.description ?? '—')}</td>
+			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">~${overhead} tokens</td>
+		</tr>`;
+	}).join('');
+	const fmt = (n: number) => n >= 1000 ? `~${Math.round(n / 1000)}K` : `~${n}`;
+	return `<details style="margin-top:12px;">
+		<summary style="cursor:pointer; font-size:13px; font-weight:600; color:var(--text-primary); padding:6px 0;">
+			🔧 Built-in VS Code Tools (${builtinTools.length}) — ${fmt(builtinBloat)} tokens overhead, not actionable
+		</summary>
+		<div style="margin-top:8px; overflow-x:auto;">
+			<table style="width:100%; border-collapse:collapse; font-size:12px;">
+				<thead><tr style="border-bottom:1px solid var(--border-color);">
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Tool</th>
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Description</th>
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Est. Overhead</th>
+				</tr></thead>
+				<tbody>${rows}</tbody>
+			</table>
+			<div style="margin-top:8px; font-size:11px; color:var(--text-secondary);">💡 These tools are provided by VS Code itself and cannot be disabled. They are excluded from the actionable overhead total above.</div>
+		</div>
+	</details>`;
+}
+
 function buildCurationSectionHtml(curation: ToolCurationAnalysis | null | undefined): string {
 	if (!curation || curation.availableTools.length === 0) { return ''; }
 
 	const { availableTools, unusedTools, underusedMcpServers, estimatedPromptBloat, recommendations, windowDays } = curation;
 	const unusedSkills = unusedTools.filter(t => t.source === 'skill');
+	const builtinTools = availableTools.filter(t => t.source === 'builtin');
 	const recsHtml = recommendations.length > 0 ? `
 		<div style="margin-top:14px;">
 			<div style="font-size:12px; font-weight:600; color:var(--text-primary); margin-bottom:8px; text-transform:uppercase; letter-spacing:0.04em;">💬 Recommendations</div>
@@ -1824,6 +1857,7 @@ function buildCurationSectionHtml(curation: ToolCurationAnalysis | null | undefi
 			<div class="section-subtitle" style="color:var(--text-primary); opacity:0.75;">Compare available tools against actual usage to reduce prompt overhead (last ${windowDays} days)</div>
 			${buildCurationSummaryHtml(availableTools, unusedTools, estimatedPromptBloat)}
 			${buildUnusedMcpHtml(underusedMcpServers, estimatedPromptBloat, windowDays)}
+			${buildBuiltinToolsHtml(builtinTools, estimatedPromptBloat)}
 			${buildUnusedSkillsHtml(unusedSkills)}
 			${recsHtml}
 		</div>`;
