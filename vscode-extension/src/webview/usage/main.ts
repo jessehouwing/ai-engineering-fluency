@@ -1650,9 +1650,9 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 		}
 		return `<tr>
 			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${escapeHtml(s.server)}</td>
-			<td style="padding:5px 8px; color:var(--text-secondary); font-size:12px;">${s.availableToolCount}</td>
-			<td style="padding:5px 8px; color:var(--text-secondary); font-size:12px;">0</td>
-			<td style="padding:5px 8px; color:var(--text-secondary); font-size:12px;">${b > 0 ? `~${b.toLocaleString()} tokens` : '—'}</td>
+			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${s.availableToolCount}</td>
+			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">0</td>
+			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${b > 0 ? `~${b.toLocaleString()} tokens` : '—'}</td>
 			<td style="padding:5px 8px; font-size:12px;">${actionCell}</td>
 		</tr>`;
 	}).join('');
@@ -1700,8 +1700,8 @@ function buildUnusedSkillsHtml(unusedSkills: AvailableToolEntry[]): string {
 		}
 		return `<tr>
 		<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${escapeHtml(s.name)} ${fileLink}</td>
-		<td style="padding:5px 8px; color:var(--text-secondary); font-size:11px;">${sourceLabel}</td>
-		<td style="padding:5px 8px; color:var(--text-secondary); font-size:11px; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(s.description)}">${escapeHtml(s.description)}</td>
+		<td style="padding:5px 8px; color:var(--text-primary); font-size:11px;">${sourceLabel}</td>
+		<td style="padding:5px 8px; color:var(--text-primary); font-size:11px; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(s.description)}">${escapeHtml(s.description)}</td>
 	</tr>`;
 	}).join('');
 	return `<details style="margin-top:8px;" open>
