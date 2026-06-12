@@ -1743,10 +1743,15 @@ function buildUnusedSkillsHtml(unusedSkills: AvailableToolEntry[]): string {
 			else if (s.skillPath.startsWith('.agents/skills')) { sourceLabel = 'Workspace (.agents)'; }
 			else { sourceLabel = 'User (~)'; }
 		}
+		// Estimate per-skill prompt token overhead using the same formula as the backend
+		// (name + description + ~10 chars of JSON framing, divided by 4 chars/token).
+		const estTokens = Math.round((s.name.length + s.description.length + 10) / 4);
+		const overheadCell = `~${estTokens.toLocaleString()} tokens`;
 		return `<tr>
 		<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">${escapeHtml(s.name)}</td>
 		<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">${sourceLabel}</td>
 		<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(s.description)}">${escapeHtml(s.description)}</td>
+		<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">${overheadCell}</td>
 		<td style="padding:5px 8px; font-size:12px; white-space:nowrap;">${viewLink}</td>
 	</tr>`;
 	}).join('');
@@ -1760,11 +1765,12 @@ function buildUnusedSkillsHtml(unusedSkills: AvailableToolEntry[]): string {
 					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Skill</th>
 					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Source</th>
 					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Description</th>
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Est. Overhead</th>
 					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">View</th>
 				</tr></thead>
 				<tbody>${rows}</tbody>
 			</table>
-			<div style="margin-top:8px; font-size:11px; color:var(--text-secondary);">💡 Update skill descriptions so Copilot selects them, or remove skills that are no longer needed.</div>
+			<div style="margin-top:8px; font-size:11px; color:var(--text-secondary);">💡 Est. overhead is per agent interaction (skill descriptions appear in every prompt). Update skill descriptions so Copilot selects them, or remove skills that are no longer needed.</div>
 		</div>
 	</details>`;
 }
