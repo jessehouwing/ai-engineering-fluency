@@ -1615,9 +1615,15 @@ function buildCurationSummaryHtml(availableTools: AvailableToolEntry[], unusedTo
 	const unusedColor = unusedTools.length > 0 ? '#fbbf24' : '#4ade80';
 	const totalBloat = bloat.totalTokens;
 	const skillBloat = bloat.byServer['skill'] ?? 0;
-	const mcpBloat = totalBloat - skillBloat;
+	const builtinBloat = bloat.byServer['builtin'] ?? 0;
+	const mcpBloat = totalBloat - skillBloat - builtinBloat;
 	const fmt = (n: number) => n >= 1000 ? `~${Math.round(n / 1000)}K` : `~${n}`;
-	const bloatTitle = `${fmt(mcpBloat)} from unused MCP tools + ${fmt(skillBloat)} from unused skills`;
+	const parts: string[] = [];
+	if (mcpBloat > 0) { parts.push(`${fmt(mcpBloat)} MCP`); }
+	if (skillBloat > 0) { parts.push(`${fmt(skillBloat)} skills`); }
+	if (builtinBloat > 0) { parts.push(`${fmt(builtinBloat)} built-in`); }
+	const bloatBreakdown = parts.join(' + ');
+	const bloatTitle = `${fmt(mcpBloat)} from unused MCP tools, ${fmt(skillBloat)} from unused skills, ${fmt(builtinBloat)} from built-in tools`;
 	return `<div style="display:flex; gap:16px; flex-wrap:wrap; margin:12px 0;">
 		<div style="background:var(--bg-tertiary); border:1px solid var(--border-color); border-radius:6px; padding:10px 16px; min-width:120px; text-align:center;">
 			<div style="font-size:20px; font-weight:700; color:var(--text-primary);">${formatNumber(availableTools.length)}</div>
@@ -1634,7 +1640,7 @@ function buildCurationSummaryHtml(availableTools: AvailableToolEntry[], unusedTo
 		${totalBloat > 0 ? `<div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:10px 16px; min-width:140px; text-align:center;" title="${escapeHtml(bloatTitle)}">
 			<div style="font-size:20px; font-weight:700; color:#f87171;">${fmt(totalBloat)}</div>
 			<div style="font-size:11px; color:var(--text-primary); opacity:0.75;">Est. overhead tokens</div>
-			<div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">${fmt(mcpBloat)} MCP + ${fmt(skillBloat)} skills</div>
+			<div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">${escapeHtml(bloatBreakdown)}</div>
 		</div>` : ''}
 	</div>`;
 }
