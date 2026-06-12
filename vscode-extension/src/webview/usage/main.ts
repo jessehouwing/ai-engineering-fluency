@@ -1662,6 +1662,14 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 		const b = bloat.byServer[s.server] ?? 0;
 		const sourceLabel = mcpSourceLabel(s);
 		const sourceTip = s.configFiles?.join('\n') ?? s.extensionId ?? '';
+		let sourceOpenBtn = '';
+		if (s.configFiles && s.configFiles.length === 1) {
+			sourceOpenBtn = ` <button class="curation-file-btn" data-command="openFile" data-path="${escapeHtml(s.configFiles[0])}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Open ${escapeHtml(s.configFiles[0])}">open</button>`;
+		} else if (s.configFiles && s.configFiles.length > 1) {
+			sourceOpenBtn = ` <button class="curation-file-btn" data-command="openFileFromList" data-paths="${escapeHtml(JSON.stringify(s.configFiles))}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="${escapeHtml(sourceTip)}">open</button>`;
+		} else if (s.extensionId) {
+			sourceOpenBtn = ` <button class="curation-file-btn" data-command="manageExtension" data-extension-id="${escapeHtml(s.extensionId)}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Open Extensions view for ${escapeHtml(s.extensionId)}">open</button>`;
+		}
 		let actionCell: string;
 		if (s.extensionId) {
 			actionCell = `<button class="curation-file-btn" data-command="manageExtension" data-extension-id="${escapeHtml(s.extensionId)}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Open the Extensions view for ${escapeHtml(s.extensionId)} (disable or uninstall to reclaim prompt budget)">Manage Extension</button>`;
@@ -1674,7 +1682,7 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 		}
 		return `<tr>
 			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">${escapeHtml(s.server)}</td>
-			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;" title="${escapeHtml(sourceTip)}">${escapeHtml(sourceLabel)}</td>
+			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;" title="${escapeHtml(sourceTip)}">${escapeHtml(sourceLabel)}${sourceOpenBtn}</td>
 			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${s.availableToolCount}</td>
 			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">0</td>
 			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${b > 0 ? `~${b.toLocaleString()} tokens` : '—'}</td>
