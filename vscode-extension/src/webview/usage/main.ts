@@ -1693,9 +1693,9 @@ function buildUnusedSkillsHtml(unusedSkills: AvailableToolEntry[]): string {
 	if (unusedSkills.length === 0) { return ''; }
 	const rows = unusedSkills.map(s => {
 		const skillFile = s.configFiles?.[0];
-		const fileLink = skillFile
-			? `<button class="curation-file-btn" data-command="openFile" data-path="${escapeHtml(skillFile)}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Open ${escapeHtml(skillFile)}">SKILL.md</button>`
-			: '';
+		const viewLink = skillFile
+			? `<button class="curation-file-btn" data-command="openFile" data-path="${escapeHtml(skillFile)}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:12px;text-decoration:underline;" title="Open ${escapeHtml(skillFile)}">View skill def.</button>`
+			: '—';
 		// Derive a human-readable source label from the skillPath / configFiles.
 		// skillPath is workspace-relative (e.g. ".github/skills/pdf/SKILL.md");
 		// user-scope paths have no workspace-relative path (s.skillPath starts with HOME).
@@ -1707,9 +1707,10 @@ function buildUnusedSkillsHtml(unusedSkills: AvailableToolEntry[]): string {
 			else { sourceLabel = 'User (~)'; }
 		}
 		return `<tr>
-		<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${escapeHtml(s.name)} ${fileLink}</td>
-		<td style="padding:5px 8px; color:var(--text-primary); font-size:11px;">${sourceLabel}</td>
-		<td style="padding:5px 8px; color:var(--text-primary); font-size:11px; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(s.description)}">${escapeHtml(s.description)}</td>
+		<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">${escapeHtml(s.name)}</td>
+		<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">${sourceLabel}</td>
+		<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(s.description)}">${escapeHtml(s.description)}</td>
+		<td style="padding:5px 8px; font-size:12px; white-space:nowrap;">${viewLink}</td>
 	</tr>`;
 	}).join('');
 	return `<details style="margin-top:8px;" open>
@@ -1722,6 +1723,7 @@ function buildUnusedSkillsHtml(unusedSkills: AvailableToolEntry[]): string {
 					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Skill</th>
 					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Source</th>
 					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Description</th>
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">View</th>
 				</tr></thead>
 				<tbody>${rows}</tbody>
 			</table>
