@@ -1634,11 +1634,12 @@ function buildCurationSummaryHtml(availableTools: AvailableToolEntry[], unusedTo
 }
 
 function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underusedMcpServers'], bloat: ToolCurationAnalysis['estimatedPromptBloat'], windowDays: number): string {
-	const zeroUsed = underusedMcpServers.filter(s => s.usedToolCount === 0);
-	if (zeroUsed.length === 0) { return ''; }
+	// Show all servers with at least one unused tool, zero-usage first.
+	const allServers = [...underusedMcpServers].sort((a, b) => a.usedToolCount - b.usedToolCount);
+	if (allServers.length === 0) { return ''; }
 
 	/** Derive a human-readable scope label from a server's config files / extension id. */
-	function mcpSourceLabel(s: typeof zeroUsed[0]): string {
+	function mcpSourceLabel(s: typeof allServers[0]): string {
 		if (s.extensionId) { return 'Extension'; }
 		if (!s.configFiles || s.configFiles.length === 0) { return 'Settings'; }
 		const labels = new Set<string>();
@@ -1658,7 +1659,7 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 		return [...labels].join(', ');
 	}
 
-	const rows = zeroUsed.map(s => {
+	const rows = allServers.map(s => {
 		const b = bloat.byServer[s.server] ?? 0;
 		const sourceLabel = mcpSourceLabel(s);
 		const sourceTip = s.configFiles?.join('\n') ?? s.extensionId ?? '';
@@ -1687,14 +1688,14 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">${escapeHtml(s.server)}</td>
 			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;" title="${escapeHtml(sourceTip)}">${escapeHtml(sourceLabel)}${sourceOpenBtn}</td>
 			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${s.availableToolCount}</td>
-			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">0</td>
+			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${s.usedToolCount}</td>
 			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${b > 0 ? `~${b.toLocaleString()} tokens` : '—'}</td>
 			<td style="padding:5px 8px; font-size:12px;">${actionCell}</td>
 		</tr>`;
 	}).join('');
 	// Find the best config file to link in the tip — prefer .vscode/mcp.json, then any file.
 	const allConfigFiles = [...new Set(
-		zeroUsed.filter(s => !s.extensionId).flatMap(s => s.configFiles ?? [])
+		allServers.filter(s => !s.extensionId).flatMap(s => s.configFiles ?? [])
 	)];
 	const preferredFile = allConfigFiles.find(f => f.replace(/\\/g, '/').endsWith('.vscode/mcp.json'))
 		?? allConfigFiles[0];
@@ -1707,7 +1708,7 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 	}
 	return `<details style="margin-top:12px;" open>
 		<summary style="cursor:pointer; font-size:13px; font-weight:600; color:var(--text-primary); padding:6px 0;">
-			🔌 MCP Servers with No Usage in Last ${windowDays} Days (${zeroUsed.length})
+			🔌 MCP Servers with Unused Tools in Last ${windowDays} Days (${allServers.length})
 		</summary>
 		<div style="margin-top:8px; overflow-x:auto;">
 			<table style="width:100%; border-collapse:collapse; font-size:12px;">
