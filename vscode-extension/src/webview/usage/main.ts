@@ -1714,21 +1714,17 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 	}
 	const usedCount = allServers.filter(s => s.usedToolCount > 0).length;
 	const unusedCount = allServers.length - usedCount;
-	const wrapId = 'mcp-table-wrap';
-	return `<style>.mcp-filter-active .mcp-has-usage { display: none; }</style>
-	<details style="margin-top:12px;" open>
+	// Pure CSS checkbox trick: input and .mcp-table-wrap are siblings inside <details>;
+	// the :checked ~ sibling combinator works without any JS (inline handlers are CSP-blocked).
+	return `<details style="margin-top:12px;" open>
 		<summary style="cursor:pointer; font-size:13px; font-weight:600; color:var(--text-primary); padding:6px 0;">
 			🔌 MCP Servers in Last ${windowDays} Days (${allServers.length})
 		</summary>
-		<div id="${wrapId}" class="mcp-filter-active" style="margin-top:8px; overflow-x:auto;">
-			<div style="margin-bottom:8px; display:flex; align-items:center; gap:8px;">
-				<label style="display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--text-primary); cursor:pointer; user-select:none;">
-					<input type="checkbox" checked
-						onchange="document.getElementById('${wrapId}').classList.toggle('mcp-filter-active',this.checked)">
-					Hide servers with usage
-				</label>
-				<span style="font-size:11px; color:var(--text-secondary);">${unusedCount} with no usage · ${usedCount} with usage</span>
-			</div>
+		<style>#mcp-hide-toggle:checked ~ .mcp-table-wrap .mcp-has-usage { display: none; }</style>
+		<input type="checkbox" id="mcp-hide-toggle" checked style="vertical-align:middle; margin:8px 4px 0 0; cursor:pointer;">
+		<label for="mcp-hide-toggle" style="font-size:12px; color:var(--text-primary); cursor:pointer; user-select:none; vertical-align:middle;">Hide servers with usage</label>
+		<span style="font-size:11px; color:var(--text-secondary); margin-left:8px;">${unusedCount} with no usage · ${usedCount} with usage</span>
+		<div class="mcp-table-wrap" style="margin-top:8px; overflow-x:auto;">
 			<table style="width:100%; border-collapse:collapse; font-size:12px;">
 				<thead><tr style="border-bottom:1px solid var(--border-color);">
 					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Server</th>
