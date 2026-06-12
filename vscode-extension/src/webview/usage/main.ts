@@ -232,6 +232,9 @@ let currentWorkspacePaths: string[] = [];
 let activeTab = 'activity';
 let loadingTimeoutId: ReturnType<typeof setTimeout> | null = null;
 let currentInsights: EvaluatedInsight[] = [];
+// Persisted across stats refreshes so the curation section doesn't disappear
+// when a periodic updateStats message omits curationAnalysis.
+let currentCurationAnalysis: ToolCurationAnalysis | null = null;
 
 function clearLoadingTimeout(): void {
 	if (loadingTimeoutId !== null) {
@@ -1635,44 +1638,45 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 	if (zeroUsed.length === 0) { return ''; }
 	const rows = zeroUsed.map(s => {
 		const b = bloat.byServer[s.server] ?? 0;
-		let fileLink: string;
+		let actionCell: string;
 		if (s.extensionId) {
-			// Server contributed by an extension — VS Code's public API can't tell us whether
-			// the user has disabled this server's tools in the chat tool picker, so the only
-			// reliable action we can offer is opening the Extensions view for this extension.
-			fileLink = `<button class="curation-file-btn" data-command="manageExtension" data-extension-id="${escapeHtml(s.extensionId)}" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Open the Extensions view for ${escapeHtml(s.extensionId)} (disable or uninstall to reclaim prompt budget)">Manage Extension</button>`;
+			actionCell = `<button class="curation-file-btn" data-command="manageExtension" data-extension-id="${escapeHtml(s.extensionId)}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Open the Extensions view for ${escapeHtml(s.extensionId)} (disable or uninstall to reclaim prompt budget)">Manage Extension</button>`;
 		} else if (!s.configFiles || s.configFiles.length === 0) {
-			// Unknown source (runtime-only or settings) — open tools picker
-			fileLink = `<button class="curation-file-btn" data-command="openToolPicker" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Open VS Code tool selection menu">Select Tools</button>`;
+			actionCell = `<button class="curation-file-btn" data-command="openToolPicker" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Open VS Code tool selection menu">Change Tools</button>`;
 		} else if (s.configFiles.length === 1) {
-			// Exactly one source — open it directly
-			fileLink = `<button class="curation-file-btn" data-command="openFile" data-path="${escapeHtml(s.configFiles[0])}" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Open ${escapeHtml(s.configFiles[0])}">mcp.json</button>`;
+			actionCell = `<button class="curation-file-btn" data-command="openFile" data-path="${escapeHtml(s.configFiles[0])}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Open ${escapeHtml(s.configFiles[0])}">Change Tools</button>`;
 		} else {
-			// Multiple sources — show scoped picker with just these files
-			fileLink = `<button class="curation-file-btn" data-command="openFileFromList" data-paths="${escapeHtml(JSON.stringify(s.configFiles))}" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Defined in ${s.configFiles.length} config files">${s.configFiles.length} config files</button>`;
+			actionCell = `<button class="curation-file-btn" data-command="openFileFromList" data-paths="${escapeHtml(JSON.stringify(s.configFiles))}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Defined in ${s.configFiles.length} config files">Change Tools</button>`;
 		}
 		return `<tr>
-			<td style="padding:4px 8px; color:var(--text-primary); font-size:12px;">${escapeHtml(s.server)}${fileLink}</td>
-			<td style="padding:4px 8px; color:var(--text-muted); font-size:12px;">${s.availableToolCount}</td>
-			<td style="padding:4px 8px; color:var(--text-muted); font-size:12px;">0</td>
-			<td style="padding:4px 8px; color:var(--text-muted); font-size:12px;">${b > 0 ? `~${b.toLocaleString()} tokens` : '—'}</td>
+			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${escapeHtml(s.server)}</td>
+			<td style="padding:5px 8px; color:var(--text-secondary); font-size:12px;">${s.availableToolCount}</td>
+			<td style="padding:5px 8px; color:var(--text-secondary); font-size:12px;">0</td>
+			<td style="padding:5px 8px; color:var(--text-secondary); font-size:12px;">${b > 0 ? `~${b.toLocaleString()} tokens` : '—'}</td>
+			<td style="padding:5px 8px; font-size:12px;">${actionCell}</td>
 		</tr>`;
 	}).join('');
-	return `<details style="margin-top:12px;">
+	// Build the mcp.json open link for the footer tip
+	const anyFileConfigured = zeroUsed.some(s => s.configFiles && s.configFiles.length > 0 && !s.extensionId);
+	const mcpJsonLink = anyFileConfigured
+		? `<button class="curation-file-btn" data-command="openMcpJson" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Open MCP config file">.vscode/mcp.json</button>`
+		: `<code>.vscode/mcp.json</code>`;
+	return `<details style="margin-top:12px;" open>
 		<summary style="cursor:pointer; font-size:13px; font-weight:600; color:var(--text-primary); padding:6px 0;">
 			🔌 MCP Servers with No Usage in Last ${windowDays} Days (${zeroUsed.length})
 		</summary>
 		<div style="margin-top:8px; overflow-x:auto;">
 			<table style="width:100%; border-collapse:collapse; font-size:12px;">
 				<thead><tr style="border-bottom:1px solid var(--border-color);">
-					<th style="padding:4px 8px; text-align:left; color:var(--text-secondary); font-weight:600;">Server</th>
-					<th style="padding:4px 8px; text-align:left; color:var(--text-secondary); font-weight:600;">Tools Available</th>
-					<th style="padding:4px 8px; text-align:left; color:var(--text-secondary); font-weight:600;">Tools Used</th>
-					<th style="padding:4px 8px; text-align:left; color:var(--text-secondary); font-weight:600;">Est. Overhead</th>
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Server</th>
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Tools Available</th>
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Tools Used</th>
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Est. Overhead</th>
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Action</th>
 				</tr></thead>
 				<tbody>${rows}</tbody>
 			</table>
-			<div style="margin-top:8px; font-size:11px; color:var(--text-muted);">💡 Open <code>.vscode/mcp.json</code> to disable file-configured servers, or use <em>Manage Extension</em> to disable or uninstall an MCP-providing extension. (VS Code does not expose per-server picker state to extensions, so servers you disabled in the chat tool picker may still appear here.)</div>
+			<div style="margin-top:8px; font-size:11px; color:var(--text-secondary);">💡 Open ${mcpJsonLink} to disable file-configured servers, or use <em>Manage Extension</em> to disable or uninstall an MCP-providing extension. (VS Code does not expose per-server picker state to extensions, so servers you disabled in the chat tool picker may still appear here.)</div>
 		</div>
 	</details>`;
 }
@@ -1682,26 +1686,38 @@ function buildUnusedSkillsHtml(unusedSkills: AvailableToolEntry[]): string {
 	const rows = unusedSkills.map(s => {
 		const skillFile = s.configFiles?.[0];
 		const fileLink = skillFile
-			? `<button class="curation-file-btn" data-command="openFile" data-path="${escapeHtml(skillFile)}" style="background:none;border:none;padding:0;margin-left:6px;cursor:pointer;color:var(--vscode-textLink-foreground,#4ea6ff);font-size:11px;text-decoration:underline;" title="Open ${escapeHtml(skillFile)}">SKILL.md</button>`
+			? `<button class="curation-file-btn" data-command="openFile" data-path="${escapeHtml(skillFile)}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Open ${escapeHtml(skillFile)}">SKILL.md</button>`
 			: '';
+		// Derive a human-readable source label from the skillPath / configFiles.
+		// skillPath is workspace-relative (e.g. ".github/skills/pdf/SKILL.md");
+		// user-scope paths have no workspace-relative path (s.skillPath starts with HOME).
+		let sourceLabel = '—';
+		if (s.skillPath) {
+			if (s.skillPath.startsWith('.github/skills')) { sourceLabel = 'Workspace (.github)'; }
+			else if (s.skillPath.startsWith('.claude/skills')) { sourceLabel = 'Workspace (.claude)'; }
+			else if (s.skillPath.startsWith('.agents/skills')) { sourceLabel = 'Workspace (.agents)'; }
+			else { sourceLabel = 'User (~)'; }
+		}
 		return `<tr>
-		<td style="padding:4px 8px; color:var(--text-primary); font-size:12px;">${escapeHtml(s.name)}${fileLink}</td>
-		<td style="padding:4px 8px; color:var(--text-muted); font-size:11px; max-width:300px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(s.description)}</td>
+		<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${escapeHtml(s.name)} ${fileLink}</td>
+		<td style="padding:5px 8px; color:var(--text-secondary); font-size:11px;">${sourceLabel}</td>
+		<td style="padding:5px 8px; color:var(--text-secondary); font-size:11px; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(s.description)}">${escapeHtml(s.description)}</td>
 	</tr>`;
 	}).join('');
-	return `<details style="margin-top:8px;">
+	return `<details style="margin-top:8px;" open>
 		<summary style="cursor:pointer; font-size:13px; font-weight:600; color:var(--text-primary); padding:6px 0;">
 			📚 Unused Skills (${unusedSkills.length})
 		</summary>
 		<div style="margin-top:8px; overflow-x:auto;">
 			<table style="width:100%; border-collapse:collapse; font-size:12px;">
 				<thead><tr style="border-bottom:1px solid var(--border-color);">
-					<th style="padding:4px 8px; text-align:left; color:var(--text-secondary); font-weight:600;">Skill Name</th>
-					<th style="padding:4px 8px; text-align:left; color:var(--text-secondary); font-weight:600;">Description</th>
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Skill</th>
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Source</th>
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Description</th>
 				</tr></thead>
 				<tbody>${rows}</tbody>
 			</table>
-			<div style="margin-top:8px; font-size:11px; color:var(--text-muted);">💡 Update skill descriptions so Copilot selects them, or remove skills that are no longer needed.</div>
+			<div style="margin-top:8px; font-size:11px; color:var(--text-secondary);">💡 Update skill descriptions so Copilot selects them, or remove skills that are no longer needed.</div>
 		</div>
 	</details>`;
 }
@@ -1712,18 +1728,20 @@ function buildCurationSectionHtml(curation: ToolCurationAnalysis | null | undefi
 	const { availableTools, unusedTools, underusedMcpServers, estimatedPromptBloat, recommendations, windowDays } = curation;
 	const unusedSkills = unusedTools.filter(t => t.source === 'skill');
 	const recsHtml = recommendations.length > 0 ? `
-		<div style="margin-top:12px;">
-			<strong style="font-size:12px; color:var(--text-secondary);">Recommendations:</strong>
-			<ul style="margin:6px 0 0 0; padding-left:18px;">
-				${recommendations.slice(0, 5).map(r => `<li style="font-size:12px; color:var(--text-secondary); margin-bottom:4px;">${escapeHtml(r.reason)}${r.estimatedTokenSavings ? ` <em>(saves ~${r.estimatedTokenSavings.toLocaleString()} tokens/interaction)</em>` : ''}</li>`).join('')}
-			</ul>
+		<div style="margin-top:14px;">
+			<div style="font-size:12px; font-weight:600; color:var(--text-primary); margin-bottom:8px; text-transform:uppercase; letter-spacing:0.04em;">💬 Recommendations</div>
+			${recommendations.slice(0, 5).map(r => `
+			<div style="display:flex; align-items:flex-start; gap:8px; margin-bottom:8px; padding:10px 12px; background:rgba(251,191,36,0.07); border:1px solid rgba(251,191,36,0.25); border-radius:6px;">
+				<span style="font-size:14px; margin-top:1px; flex-shrink:0;">→</span>
+				<div style="font-size:12px; color:var(--text-primary); line-height:1.5;">${escapeHtml(r.reason)}${r.estimatedTokenSavings ? `<span style="margin-left:6px; font-size:11px; color:var(--text-secondary); font-style:italic;">saves ~${r.estimatedTokenSavings.toLocaleString()} tokens/interaction</span>` : ''}</div>
+			</div>`).join('')}
 		</div>` : '';
 
 	return `
 		<!-- Tool Curation Section -->
 		<div id="section-tool-curation" class="section">
 			<div class="section-title"><span>✂️</span><span>Tool Curation</span></div>
-			<div class="section-subtitle">Compare available tools against actual usage to reduce prompt overhead (last ${windowDays} days)</div>
+			<div class="section-subtitle" style="color:var(--text-primary); opacity:0.75;">Compare available tools against actual usage to reduce prompt overhead (last ${windowDays} days)</div>
 			${buildCurationSummaryHtml(availableTools, unusedTools, estimatedPromptBloat.totalTokens)}
 			${buildUnusedMcpHtml(underusedMcpServers, estimatedPromptBloat, windowDays)}
 			${buildUnusedSkillsHtml(unusedSkills)}
@@ -2293,7 +2311,7 @@ function buildToolsTabPanelHtml(
 			</div>
 
 			${buildMcpToolsSectionHtml(stats, allMcpToolKeys, allMcpServerKeys)}
-			${buildCurationSectionHtml(stats.curationAnalysis)}
+			${buildCurationSectionHtml(currentCurationAnalysis ?? stats.curationAnalysis)}
 			<!-- Multi-Model Usage Section -->
 			<div class="section">
 				<div class="section-title"><span>🔀</span><span>Multi-Model Usage</span></div>
@@ -2324,6 +2342,10 @@ function renderLayout(stats: UsageAnalysisStats): void {
 	}
 	if (Array.isArray(stats.currentWorkspacePaths)) {
 		currentWorkspacePaths = stats.currentWorkspacePaths;
+	}
+	// Persist curation analysis across refreshes — periodic updateStats may omit it
+	if (stats.curationAnalysis) {
+		currentCurationAnalysis = stats.curationAnalysis;
 	}
 
 	const customizationHtml = buildCustomizationSectionHtml(matrix);
