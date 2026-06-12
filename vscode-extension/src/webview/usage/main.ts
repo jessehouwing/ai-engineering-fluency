@@ -1670,8 +1670,8 @@ function buildUnusedMcpHtml(underusedMcpServers: ToolCurationAnalysis['underused
 		} else if (s.extensionId) {
 			sourceOpenBtn = ` <button class="curation-file-btn" data-command="manageExtension" data-extension-id="${escapeHtml(s.extensionId)}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Open Extensions view for ${escapeHtml(s.extensionId)}">open</button>`;
 		} else {
-			// Configured via VS Code UI settings — open the MCP tool picker
-			sourceOpenBtn = ` <button class="curation-file-btn" data-command="openToolPicker" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Open MCP servers in VS Code">open</button>`;
+			// Configured via VS Code UI settings — search the marketplace for MCP extensions
+			sourceOpenBtn = ` <button class="curation-file-btn" data-command="searchMcpExtensions" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Browse MCP extensions in the marketplace">open</button>`;
 		}
 		let actionCell: string;
 		if (s.extensionId) {
