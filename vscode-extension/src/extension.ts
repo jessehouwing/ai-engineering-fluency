@@ -730,6 +730,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 				const picked = await vscode.window.showQuickPick(items, { title: 'Open MCP config file', placeHolder: 'Select which config file to open' });
 				if (picked) { await vscode.window.showTextDocument(vscode.Uri.file(picked.fsPath)); }
 			},
+			searchMcpExtensions:    () => vscode.commands.executeCommand('workbench.extensions.search', '@tag:mcp'),
 			manageExtension:        async () => {
 				// Open the Extensions view details pane for a specific extension.
 				// VS Code can't tell us whether the user disabled the extension's tools in the chat
