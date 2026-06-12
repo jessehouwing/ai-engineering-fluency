@@ -1618,14 +1618,10 @@ function buildCurationSummaryHtml(availableTools: AvailableToolEntry[], unusedTo
 	const builtinBloat = bloat.byServer['builtin'] ?? 0;
 	const mcpBloat = totalBloat - skillBloat - builtinBloat;
 	const fmt = (n: number) => n >= 1000 ? `~${Math.round(n / 1000)}K` : `~${n}`;
-	const parts: string[] = [];
-	if (mcpBloat > 0) { parts.push(`${fmt(mcpBloat)} MCP`); }
-	if (skillBloat > 0) { parts.push(`${fmt(skillBloat)} skills`); }
-	if (builtinBloat > 0) { parts.push(`${fmt(builtinBloat)} built-in`); }
-	const bloatBreakdown = parts.join(' + ');
-	const bloatTitle = `${fmt(mcpBloat)} from unused MCP tools, ${fmt(skillBloat)} from unused skills, ${fmt(builtinBloat)} from built-in tools`;
 	const actionableBloat = mcpBloat + skillBloat;
-	const builtinNote = builtinBloat > 0 ? ` + ${fmt(builtinBloat)} built-in (not actionable)` : '';
+	const actionableParts: string[] = [];
+	if (mcpBloat > 0) { actionableParts.push(`${fmt(mcpBloat)} MCP`); }
+	if (skillBloat > 0) { actionableParts.push(`${fmt(skillBloat)} skills`); }
 	return `<div style="display:flex; gap:16px; flex-wrap:wrap; margin:12px 0;">
 		<div style="background:var(--bg-tertiary); border:1px solid var(--border-color); border-radius:6px; padding:10px 16px; min-width:120px; text-align:center;">
 			<div style="font-size:20px; font-weight:700; color:var(--text-primary);">${formatNumber(availableTools.length)}</div>
@@ -1639,10 +1635,15 @@ function buildCurationSummaryHtml(availableTools: AvailableToolEntry[], unusedTo
 			<div style="font-size:20px; font-weight:700; color:${unusedColor};">${formatNumber(unusedTools.length)}</div>
 			<div style="font-size:11px; color:var(--text-primary); opacity:0.75;">Unused</div>
 		</div>
-		${actionableBloat > 0 ? `<div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:10px 16px; min-width:140px; text-align:center;" title="${escapeHtml(bloatTitle)}">
+		${actionableBloat > 0 ? `<div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:10px 16px; min-width:140px; text-align:center;" title="Overhead you can reduce by disabling unused MCP servers or removing unused skills">
 			<div style="font-size:20px; font-weight:700; color:#f87171;">${fmt(actionableBloat)}</div>
 			<div style="font-size:11px; color:var(--text-primary); opacity:0.75;">Actionable overhead</div>
-			<div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">${escapeHtml(bloatBreakdown)}${builtinNote}</div>
+			${actionableParts.length > 0 ? `<div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">${escapeHtml(actionableParts.join(' + '))}</div>` : ''}
+		</div>` : ''}
+		${builtinBloat > 0 ? `<div style="background:var(--bg-tertiary); border:1px solid var(--border-color); border-radius:6px; padding:10px 16px; min-width:140px; text-align:center; opacity:0.7;" title="Overhead from VS Code built-in tools — cannot be disabled">
+			<div style="font-size:20px; font-weight:700; color:var(--text-secondary);">${fmt(builtinBloat)}</div>
+			<div style="font-size:11px; color:var(--text-primary); opacity:0.75;">Built-in overhead</div>
+			<div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">not actionable</div>
 		</div>` : ''}
 	</div>`;
 }
