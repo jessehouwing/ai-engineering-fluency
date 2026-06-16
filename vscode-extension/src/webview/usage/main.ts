@@ -221,6 +221,22 @@ interface RepoAnalysisRecord {
 }
 
 const vscode = acquireVsCodeApi();
+const curationTraceOnceKeys = new Set<string>();
+
+function traceCuration(stage: string, details?: Record<string, unknown>): void {
+	try {
+		vscode.postMessage({ command: 'traceUsageCuration', stage, details: details ?? {} });
+	} catch {
+		// ignore tracing failures
+	}
+}
+
+function traceCurationOnce(key: string, stage: string, details?: Record<string, unknown>): void {
+	if (curationTraceOnceKeys.has(key)) { return; }
+	curationTraceOnceKeys.add(key);
+	traceCuration(stage, details);
+}
+
 type InitialUsageData = UsageAnalysisStats & { customizationMatrix?: WorkspaceCustomizationMatrix | null; missedPotential?: MissedPotentialWorkspace[] };
 const initialData = getWindowData<InitialUsageData>('__INITIAL_USAGE__');
 let hygieneMatrixState: WorkspaceCustomizationMatrix | null = null;
@@ -235,6 +251,58 @@ let currentInsights: EvaluatedInsight[] = [];
 // Persisted across stats refreshes so the curation section doesn't disappear
 // when a periodic updateStats message omits curationAnalysis.
 let currentCurationAnalysis: ToolCurationAnalysis | null = null;
+
+function renderUsageLoadingState(initialMessage = 'Loading usage analysis...'): void {
+	const root = document.getElementById('root');
+	if (!root) { return; }
+	root.innerHTML = `
+		<div style="padding: 24px; max-width: 780px; margin: 0 auto; color: var(--vscode-foreground);">
+			<div style="font-size: 16px; font-weight: 600; margin-bottom: 10px;">⏳ ${escapeHtml(initialMessage)}</div>
+			<div style="height: 8px; background: var(--vscode-editorWidget-border, #333); border-radius: 999px; overflow: hidden; margin-bottom: 12px;">
+				<div id="usage-loading-bar" style="height: 100%; width: 8%; background: linear-gradient(90deg, var(--vscode-progressBar-background, #0e70c0), #4ea1ff); transition: width .25s ease;"></div>
+			</div>
+			<div id="usage-loading-message" style="font-size: 13px; opacity: 0.85; margin-bottom: 8px;">Initializing...</div>
+			<div id="usage-loading-events" style="font-size: 12px; opacity: 0.75; line-height: 1.5; max-height: 180px; overflow: auto;"></div>
+		</div>`;
+}
+
+function updateUsageLoadingProgress(message: any): void {
+	const root = document.getElementById('root');
+	if (!root) { return; }
+	if (!root.querySelector('#usage-loading-bar')) {
+		renderUsageLoadingState('Loading usage analysis...');
+	}
+	const stage = typeof message?.stage === 'string' ? message.stage : '';
+	const text = typeof message?.message === 'string' ? message.message : 'Working...';
+	const stagePct: Record<string, number> = {
+		start: 10,
+		'curation:start': 35,
+		'curation:runtimeTools': 45,
+		'curation:mcpJson': 52,
+		'curation:mcpSources': 60,
+		'curation:skillsScanStart': 68,
+		'curation:skillsScanDone': 82,
+		'curation:done': 90,
+		ready: 100,
+		error: 100,
+		'curation:error': 100,
+	};
+	const pct = stagePct[stage] ?? 20;
+	const bar = document.getElementById('usage-loading-bar');
+	const msg = document.getElementById('usage-loading-message');
+	const events = document.getElementById('usage-loading-events');
+	if (bar) { bar.style.width = `${pct}%`; }
+	if (msg) { msg.textContent = text; }
+	if (events) {
+		const detailsText = message?.details && typeof message.details === 'object'
+			? ` ${JSON.stringify(message.details)}`
+			: '';
+		const line = document.createElement('div');
+		line.textContent = `• ${text}${detailsText}`;
+		events.appendChild(line);
+		events.scrollTop = events.scrollHeight;
+	}
+}
 
 function clearLoadingTimeout(): void {
 	if (loadingTimeoutId !== null) {
@@ -905,6 +973,7 @@ function sanitizeInsights(rawInsights: any[]): EvaluatedInsight[] {
 
 function sanitizeStats(raw: any): UsageAnalysisStats | null {
 	if (!raw || typeof raw !== 'object') {
+		traceCurationOnce('sanitize-invalid-root', 'sanitizeStats.invalidRoot');
 		return null;
 	}
 
@@ -967,10 +1036,20 @@ function sanitizeStats(raw: any): UsageAnalysisStats | null {
 					: { totalTokens: 0, byServer: {} },
 				recommendations: Array.isArray(ca.recommendations) ? ca.recommendations : [],
 			};
+			traceCuration('sanitizeStats.curation.present', {
+				availableTools: sanitized.curationAnalysis.availableTools.length,
+				unusedTools: sanitized.curationAnalysis.unusedTools.length,
+				unusedServers: sanitized.curationAnalysis.underusedMcpServers.filter(s => s.usedToolCount === 0).length,
+			});
+		} else {
+			traceCurationOnce('sanitize-no-curation', 'sanitizeStats.curation.missing');
 		}
 
 		return sanitized;
-	} catch {
+	} catch (error) {
+		traceCurationOnce('sanitize-error', 'sanitizeStats.error', {
+			error: error instanceof Error ? error.message : String(error),
+		});
 		return null;
 	}
 }
@@ -1838,22 +1917,46 @@ function buildBuiltinToolsHtml(builtinTools: AvailableToolEntry[], bloat: ToolCu
 }
 
 function buildCurationSectionHtml(curation: ToolCurationAnalysis | null | undefined): string {
-	if (!curation || curation.availableTools.length === 0) { return ''; }
+	try {
+		if (!curation || curation.availableTools.length === 0) {
+			traceCurationOnce('render-hidden-empty', 'buildCurationSectionHtml.hidden', {
+				hasCurationObject: !!curation,
+				availableTools: curation?.availableTools?.length ?? 0,
+			});
+			return '';
+		}
 
-	const { availableTools, unusedTools, underusedMcpServers, estimatedPromptBloat, windowDays } = curation;
-	const unusedSkills = unusedTools.filter(t => t.source === 'skill');
-	const builtinTools = availableTools.filter(t => t.source === 'builtin');
+		const { availableTools, unusedTools, underusedMcpServers, estimatedPromptBloat, windowDays } = curation;
+		const unusedSkills = unusedTools.filter(t => t.source === 'skill');
+		const builtinTools = availableTools.filter(t => t.source === 'builtin');
 
-	return `
-		<!-- Tool Curation Section -->
-		<div id="section-tool-curation" class="section">
-			<div class="section-title"><span>✂️</span><span>Tool Curation</span></div>
-			<div class="section-subtitle" style="color:var(--text-primary); opacity:0.75;">Compare available tools against actual usage to reduce prompt overhead (last ${windowDays} days)</div>
-			${buildCurationSummaryHtml(availableTools, unusedTools, estimatedPromptBloat)}
-			${buildUnusedMcpHtml(underusedMcpServers, estimatedPromptBloat, windowDays)}
-			${buildBuiltinToolsHtml(builtinTools, estimatedPromptBloat)}
-			${buildUnusedSkillsHtml(unusedSkills)}
-		</div>`;
+		traceCuration('buildCurationSectionHtml.render', {
+			availableTools: availableTools.length,
+			unusedTools: unusedTools.length,
+			unusedSkills: unusedSkills.length,
+			mcpServers: underusedMcpServers.length,
+		});
+
+		return `
+			<!-- Tool Curation Section -->
+			<div id="section-tool-curation" class="section">
+				<div class="section-title"><span>✂️</span><span>Tool Curation</span></div>
+				<div class="section-subtitle" style="color:var(--text-primary); opacity:0.75;">Compare available tools against actual usage to reduce prompt overhead (last ${windowDays} days)</div>
+				${buildCurationSummaryHtml(availableTools, unusedTools, estimatedPromptBloat)}
+				${buildUnusedMcpHtml(underusedMcpServers, estimatedPromptBloat, windowDays)}
+				${buildBuiltinToolsHtml(builtinTools, estimatedPromptBloat)}
+				${buildUnusedSkillsHtml(unusedSkills)}
+			</div>`;
+	} catch (error) {
+		traceCuration('buildCurationSectionHtml.error', {
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return `
+			<div id="section-tool-curation" class="section">
+				<div class="section-title"><span>✂️</span><span>Tool Curation</span></div>
+				<div class="section-subtitle" style="color:var(--text-primary); opacity:0.75;">Tool curation is temporarily unavailable due to a rendering error. Try Refresh.</div>
+			</div>`;
+	}
 }
 
 function buildReposAndAgentTabPanelsHtml(): string {
@@ -2029,31 +2132,52 @@ function refreshInsightsPanel(insights: EvaluatedInsight[]): void {
 }
 
 function wireCurationButtons(): void {
-	const section = document.getElementById('section-tool-curation');
-	if (!section) { return; }
-	section.querySelectorAll<HTMLButtonElement>('.curation-file-btn').forEach(btn => {
-		btn.addEventListener('click', () => {
-			const command = btn.getAttribute('data-command');
-			if (!command) { return; }
-			if (command === 'openFile') {
-				const filePath = btn.getAttribute('data-path');
-				if (filePath) { vscode.postMessage({ command: 'openFile', path: filePath }); }
-			} else if (command === 'openFileFromList') {
-				const pathsJson = btn.getAttribute('data-paths');
-				if (pathsJson) {
-					try {
-						const paths = JSON.parse(pathsJson) as string[];
-						vscode.postMessage({ command: 'openFileFromList', paths });
-					} catch { /* ignore malformed JSON */ }
+	try {
+		const section = document.getElementById('section-tool-curation');
+		if (!section) {
+			traceCurationOnce('wire-no-section', 'wireCurationButtons.noSection');
+			return;
+		}
+		const buttons = section.querySelectorAll<HTMLButtonElement>('.curation-file-btn');
+		traceCuration('wireCurationButtons.bind', { buttons: buttons.length });
+		buttons.forEach(btn => {
+			btn.addEventListener('click', () => {
+				try {
+					const command = btn.getAttribute('data-command');
+					if (!command) { return; }
+					if (command === 'openFile') {
+						const filePath = btn.getAttribute('data-path');
+						if (filePath) { vscode.postMessage({ command: 'openFile', path: filePath }); }
+					} else if (command === 'openFileFromList') {
+						const pathsJson = btn.getAttribute('data-paths');
+						if (pathsJson) {
+							try {
+								const paths = JSON.parse(pathsJson) as string[];
+								vscode.postMessage({ command: 'openFileFromList', paths });
+							} catch (error) {
+								traceCuration('wireCurationButtons.badPathsJson', {
+									error: error instanceof Error ? error.message : String(error),
+								});
+							}
+						}
+					} else if (command === 'manageExtension') {
+						const extensionId = btn.getAttribute('data-extension-id');
+						if (extensionId) { vscode.postMessage({ command: 'manageExtension', extensionId }); }
+					} else {
+						vscode.postMessage({ command });
+					}
+				} catch (error) {
+					traceCuration('wireCurationButtons.clickError', {
+						error: error instanceof Error ? error.message : String(error),
+					});
 				}
-			} else if (command === 'manageExtension') {
-				const extensionId = btn.getAttribute('data-extension-id');
-				if (extensionId) { vscode.postMessage({ command: 'manageExtension', extensionId }); }
-			} else {
-				vscode.postMessage({ command });
-			}
+			});
 		});
-	});
+	} catch (error) {
+		traceCuration('wireCurationButtons.error', {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
 }
 
 function wireInsightCardButtons(): void {
@@ -2453,6 +2577,12 @@ function renderLayout(stats: UsageAnalysisStats): void {
 	// Persist curation analysis across refreshes — periodic updateStats may omit it
 	if (stats.curationAnalysis) {
 		currentCurationAnalysis = stats.curationAnalysis;
+		traceCuration('renderLayout.curation.cached', {
+			availableTools: currentCurationAnalysis.availableTools.length,
+			unusedTools: currentCurationAnalysis.unusedTools.length,
+		});
+	} else {
+		traceCurationOnce('render-no-curation-update', 'renderLayout.curation.notProvidedInUpdate');
 	}
 
 	const customizationHtml = buildCustomizationSectionHtml(matrix);
@@ -2614,6 +2744,7 @@ function handleUpdateStats(message: any): void {
 		if (repoPrStatsData) { updateReposPrPanel(repoPrStatsData); }
 		if (agentSessionsData) { updateAgentSessionsPanel(agentSessionsData); }
 	} else {
+		traceCurationOnce('update-invalid-sanitized', 'handleUpdateStats.sanitizeReturnedNull');
 		showLoadError('Received invalid data from the extension. Try refreshing.');
 	}
 }
@@ -2702,6 +2833,8 @@ function handleExtensionMessage(message: any): void {
 			handleUpdateInsights(message.insights); break;
 		case 'switchTab':
 			handleSwitchTab(message); break;
+		case 'usageLoadingProgress':
+			updateUsageLoadingProgress(message); break;
 	}
 }
 
@@ -3187,14 +3320,11 @@ async function bootstrap(): Promise<void> {
 	// TOOL_NAME_MAP is imported at build-time from src/toolNames.json
 
 	if (!initialData) {
-		const root = document.getElementById('root');
-		if (root) {
-			root.innerHTML = '<div style="padding: 32px; text-align: center; color: var(--vscode-foreground); opacity: 0.7; font-size: 14px;">⏳ Loading usage analysis…</div>';
-		}
+		renderUsageLoadingState('Loading usage analysis...');
 		// If data doesn't arrive within 30s, show a helpful hint (non-fatal)
 		loadingTimeoutId = setTimeout(() => {
 			const r = document.getElementById('root');
-			if (r && r.innerHTML.includes('Loading usage analysis')) {
+			if (r && r.querySelector('#usage-loading-bar')) {
 				const hint = document.createElement('div');
 				hint.style.cssText = 'padding: 32px; text-align: center; font-size: 14px;';
 				const msg = document.createElement('div');

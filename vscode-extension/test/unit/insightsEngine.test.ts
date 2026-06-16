@@ -125,6 +125,7 @@ test('auto-compaction-pattern: body mentions /compact and /new', () => {
 });
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // high-prompt-bloat insight tests
 // ---------------------------------------------------------------------------
 
@@ -189,4 +190,56 @@ test('high-prompt-bloat: has severity=opportunity', () => {
 test('high-prompt-bloat: has category=tools', () => {
 	const def = INSIGHT_CATALOG.find(d => d.id === HIGH_PROMPT_BLOAT_ID);
 	assert.equal(def?.category, 'tools');
+});
+
+// ---------------------------------------------------------------------------
+// stale-skills insight tests
+// ---------------------------------------------------------------------------
+
+const STALE_SKILLS_ID = 'stale-skills';
+
+test('stale-skills: fires when exactly one unused skill exists', () => {
+	const ctx: InsightContext = {
+		today: emptyPeriod(),
+		last30Days: emptyPeriod(),
+		missedPotential: [],
+		curationAnalysis: {
+			windowDays: 30,
+			availableTools: [
+				{ name: 'my-skill', description: 'Skill', source: 'skill', skillPath: '.github/skills/my-skill/SKILL.md' },
+			],
+			usedTools: [],
+			unusedTools: [
+				{ name: 'my-skill', description: 'Skill', source: 'skill', skillPath: '.github/skills/my-skill/SKILL.md' },
+			],
+			underusedMcpServers: [],
+			estimatedPromptBloat: { totalTokens: 0, byServer: {} },
+			recommendations: [],
+		},
+	};
+
+	const results = evaluateInsights(ctx, {}, 7, null);
+	const insight = results.find(i => i.id === STALE_SKILLS_ID);
+	assert.ok(insight, 'stale-skills should trigger with one unused skill');
+});
+
+test('stale-skills: does not fire when no unused skills exist', () => {
+	const ctx: InsightContext = {
+		today: emptyPeriod(),
+		last30Days: emptyPeriod(),
+		missedPotential: [],
+		curationAnalysis: {
+			windowDays: 30,
+			availableTools: [],
+			usedTools: [],
+			unusedTools: [],
+			underusedMcpServers: [],
+			estimatedPromptBloat: { totalTokens: 0, byServer: {} },
+			recommendations: [],
+		},
+	};
+
+	const results = evaluateInsights(ctx, {}, 7, null);
+	const insight = results.find(i => i.id === STALE_SKILLS_ID);
+	assert.equal(insight, undefined);
 });

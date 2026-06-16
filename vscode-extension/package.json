@@ -126,6 +126,11 @@
         "category": "AI Engineering Fluency"
       },
       {
+        "command": "aiEngineeringFluency.resetInsightsState",
+        "title": "Reset Insights Dismissal State",
+        "category": "AI Engineering Fluency"
+      },
+      {
         "command": "aiEngineeringFluency.showDashboard",
         "title": "Show Team Dashboard",
         "category": "AI Engineering Fluency"

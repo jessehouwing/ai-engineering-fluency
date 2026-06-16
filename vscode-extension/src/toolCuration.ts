@@ -261,18 +261,123 @@ export function buildMcpEntriesFromJson(workspaceFolderPaths: string[]): Availab
 // Skill discovery (works in both VS Code and CLI)
 // ---------------------------------------------------------------------------
 
-/** Extract the first description line from a SKILL.md file, or return a default. */
-function readSkillDescription(skillMdPath: string, fallback: string): string {
+/**
+ * Parse YAML frontmatter from a SKILL.md file and extract the `description` field.
+ *
+ * Handles:
+ * - Inline values:            `description: Some text`
+ * - Quoted inline values:     `description: "Some text"`
+ * - Folded block scalars:     `description: >-` / `description: >`
+ * - Literal block scalars:    `description: |-` / `description: |` / `description: |>`
+ *
+ * For folded scalars (starting with `>`) continuation lines are joined with a single
+ * space (standard YAML folded behaviour).  For literal scalars (starting with `|`)
+ * continuation lines are joined with a newline.
+ *
+ * Falls back to the first Markdown heading (`# Title`) when the frontmatter has no
+ * `description` key, and to `fallback` when neither can be found.
+ */
+export function readSkillDescription(skillMdPath: string, fallback: string): string {
 	try {
 		const content = fs.readFileSync(skillMdPath, 'utf-8');
-		const descMatch = /^(?:description:|#\s+)(.+)/im.exec(content);
-		if (descMatch) {
-			return descMatch[1].trim().replace(/^["']|["']$/g, '');
-		}
+		const desc = extractDescriptionFromSkillContent(content);
+		if (desc) { return desc; }
 	} catch {
 		// ignore read errors
 	}
 	return fallback;
+}
+
+/**
+ * Extract the description value from the text content of a SKILL.md file.
+ * Exported for unit testing.
+ */
+export function extractDescriptionFromSkillContent(content: string): string | undefined {
+	// --- Attempt to parse YAML frontmatter block ---
+	const frontmatter = extractFrontmatter(content);
+	if (frontmatter !== undefined) {
+		const desc = parseFrontmatterDescription(frontmatter);
+		if (desc) { return desc; }
+	}
+
+	// --- Fallback: description: anywhere in the file (no frontmatter delimiters) ---
+	// Match only an inline value — skip block scalar indicators
+	const inlineMatch = /^description:\s+(?!>|[|])(.+)/im.exec(content);
+	if (inlineMatch) {
+		return inlineMatch[1].trim().replace(/^["']|["']$/g, '');
+	}
+
+	// --- Final fallback: first Markdown heading ---
+	const headingMatch = /^#\s+(.+)/m.exec(content);
+	if (headingMatch) { return headingMatch[1].trim(); }
+
+	return undefined;
+}
+
+/** Return the raw frontmatter text (between the two `---` fences), or undefined. */
+function extractFrontmatter(content: string): string | undefined {
+	// Allow an optional BOM and optional leading whitespace before the first fence
+	const stripped = content.replace(/^\uFEFF/, '').trimStart();
+	if (!stripped.startsWith('---')) { return undefined; }
+	const afterOpen = stripped.slice(3);
+	// The closing fence must be `---` on its own line; allow EOF without trailing newline
+	const closeIdx = afterOpen.search(/\n---(?:\r?\n|$)/m);
+	if (closeIdx === -1) { return undefined; }
+	return afterOpen.slice(0, closeIdx);
+}
+
+/**
+ * Extract the `description` value from a raw YAML frontmatter string.
+ * Handles inline, folded (>/->) and literal (|/|-/|>) block styles.
+ */
+/** Collect indented body lines following a block scalar indicator, stripped of their common indentation. */
+function collectBlockScalarLines(lines: string[], startIdx: number, keyIndent: number): string[] {
+	const bodyLines: string[] = [];
+	for (let j = startIdx; j < lines.length; j++) {
+		const bodyLine = lines[j];
+		if (bodyLine.trim() === '') { bodyLines.push(''); continue; }
+		const bodyIndent = bodyLine.match(/^(\s*)/)?.[1].length ?? 0;
+		if (bodyIndent <= keyIndent) { break; }
+		bodyLines.push(bodyLine.trim());
+	}
+	// Trim trailing blank lines
+	while (bodyLines.length > 0 && bodyLines[bodyLines.length - 1] === '') { bodyLines.pop(); }
+	return bodyLines;
+}
+
+function parseFrontmatterDescription(frontmatter: string): string | undefined {
+	const lines = frontmatter.split(/\r?\n/);
+
+	for (let i = 0; i < lines.length; i++) {
+		const keyMatch = /^(\s*)description:\s*(.*)/i.exec(lines[i]);
+		if (!keyMatch) { continue; }
+
+		const indent = keyMatch[1].length;
+		const valueRaw = keyMatch[2].trim();
+
+		// Block scalar indicator: >, >-, |, |-, |>
+		const blockMatch = /^([|>])[-+>]?\s*$/.exec(valueRaw);
+		if (blockMatch) {
+			const bodyLines = collectBlockScalarLines(lines, i + 1, indent);
+			if (bodyLines.length === 0) { return undefined; }
+			return blockMatch[1] === '>' ? bodyLines.join(' ') : bodyLines.join('\n');
+		}
+
+		// Inline value (possibly quoted)
+		return valueRaw ? valueRaw.replace(/^["']|["']$/g, '') : undefined;
+	}
+
+	return undefined;
+}
+
+function readJsonFile(filePath: string): unknown {
+	try {
+		if (!fs.existsSync(filePath)) { return undefined; }
+		const raw = fs.readFileSync(filePath, 'utf-8');
+		return JSON.parse(raw);
+	} catch {
+		return undefined;
+	}
 }
 
 /** Collect skill entries from a single `.github/skills` directory. */
@@ -297,6 +402,123 @@ function collectSkillsFromDirectory(folder: string, skillsDir: string, seenPaths
 	return entries;
 }
 
+const SKILL_DIR_SCAN_EXCLUDES = new Set([
+	'.git',
+	'node_modules',
+	'dist',
+	'out',
+	'build',
+	'.next',
+	'.venv',
+	'venv',
+	'target',
+	'.idea',
+	'.vscode',
+]);
+
+function findNestedSkillsDirectories(rootDir: string, maxDepth = 8): string[] {
+	const found: string[] = [];
+	const visited = new Set<string>();
+
+	const walk = (currentDir: string, depth: number): void => {
+		if (depth > maxDepth || visited.has(currentDir)) { return; }
+		visited.add(currentDir);
+
+		let entries: fs.Dirent[];
+		try {
+			entries = fs.readdirSync(currentDir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+
+		for (const entry of entries) {
+			if (!entry.isDirectory()) { continue; }
+			if (SKILL_DIR_SCAN_EXCLUDES.has(entry.name)) { continue; }
+			const child = path.join(currentDir, entry.name);
+			if (entry.name === 'skills') {
+				found.push(child);
+				continue;
+			}
+			walk(child, depth + 1);
+		}
+	};
+
+	walk(rootDir, 0);
+	return found;
+}
+
+function collectSkillsFromRoot(relativeTo: string, rootDir: string, seenPaths: Set<string>): AvailableToolEntry[] {
+	if (!fs.existsSync(rootDir)) { return []; }
+
+	const entries: AvailableToolEntry[] = [];
+	entries.push(...collectSkillsFromDirectory(relativeTo, rootDir, seenPaths));
+
+	for (const skillsDir of findNestedSkillsDirectories(rootDir)) {
+		entries.push(...collectSkillsFromDirectory(relativeTo, skillsDir, seenPaths));
+	}
+
+	return entries;
+}
+
+function resolveSkillPath(rawPath: string, home: string): string {
+	let resolved = rawPath.trim();
+	if (!resolved) { return ''; }
+
+	if (resolved.startsWith('~')) {
+		resolved = path.join(home, resolved.slice(1));
+	}
+
+	resolved = resolved.replace(/\$\{env:([^}]+)\}/gi, (_m, varName: string) => process.env[varName] ?? '');
+	resolved = resolved.replace(/%([^%]+)%/g, (_m, varName: string) => process.env[varName] ?? '');
+
+	if (!path.isAbsolute(resolved)) {
+		resolved = path.resolve(home, resolved);
+	}
+
+	return resolved;
+}
+
+function getVsCodeSettingsFiles(home: string): string[] {
+	const appData = process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming');
+	const isWindows = process.platform === 'win32';
+
+	if (isWindows) {
+		return [
+			path.join(appData, 'Code', 'User', 'settings.json'),
+			path.join(appData, 'Code - Insiders', 'User', 'settings.json'),
+		];
+	}
+
+	if (process.platform === 'darwin') {
+		return [
+			path.join(home, 'Library', 'Application Support', 'Code', 'User', 'settings.json'),
+			path.join(home, 'Library', 'Application Support', 'Code - Insiders', 'User', 'settings.json'),
+		];
+	}
+
+	return [
+		path.join(home, '.config', 'Code', 'User', 'settings.json'),
+		path.join(home, '.config', 'Code - Insiders', 'User', 'settings.json'),
+	];
+}
+
+function getConfiguredAgentSkillLocations(home: string): string[] {
+	const locations = new Set<string>();
+
+	for (const settingsFile of getVsCodeSettingsFiles(home)) {
+		const parsed = readJsonFile(settingsFile) as { [key: string]: unknown } | undefined;
+		const raw = parsed?.['chat.agentSkillsLocations'];
+		if (!Array.isArray(raw)) { continue; }
+		for (const item of raw) {
+			if (typeof item !== 'string') { continue; }
+			const resolved = resolveSkillPath(item, home);
+			if (resolved) { locations.add(resolved); }
+		}
+	}
+
+	return [...locations];
+}
+
 /**
  * Workspace-relative skill directory names checked by VS Code and Visual Studio.
  *
@@ -319,6 +541,15 @@ function userSkillDirs(): string[] {
 	];
 }
 
+function userAgentPluginRoots(): string[] {
+	const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
+	if (!home) { return []; }
+	return [
+		path.join(home, '.vscode', 'agent-plugins'),
+		path.join(home, '.vscode-insiders', 'agent-plugins'),
+	];
+}
+
 /**
  * Scan workspace folders and user-level directories for skill files
  * (`SKILL.md`) and return them as `AvailableToolEntry` objects.
@@ -333,7 +564,10 @@ function userSkillDirs(): string[] {
  *   `~/.claude/skills/`   (Visual Studio)
  *   `~/.agents/skills/`   (Visual Studio)
  */
-export function discoverSkillEntries(workspaceFolderPaths: string[]): AvailableToolEntry[] {
+export function discoverSkillEntries(
+	workspaceFolderPaths: string[],
+	options?: { additionalSkillDirs?: string[] },
+): AvailableToolEntry[] {
 	const entries: AvailableToolEntry[] = [];
 	const seenPaths = new Set<string>();
 
@@ -349,8 +583,27 @@ export function discoverSkillEntries(workspaceFolderPaths: string[]): AvailableT
 	// User-scoped skill directories (not tied to any workspace folder)
 	const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
 	for (const skillsDir of userSkillDirs()) {
-		if (!fs.existsSync(skillsDir)) { continue; }
-		entries.push(...collectSkillsFromDirectory(home, skillsDir, seenPaths));
+		entries.push(...collectSkillsFromRoot(home, skillsDir, seenPaths));
+	}
+
+	// VS Code user plugin locations (stable + insiders) may contain nested `skills/` folders.
+	for (const pluginRoot of userAgentPluginRoots()) {
+		entries.push(...collectSkillsFromRoot(home, pluginRoot, seenPaths));
+	}
+
+	// chat.agentSkillsLocations from VS Code stable/insiders settings + extension-provided paths.
+	const optionDirs = Array.isArray(options?.additionalSkillDirs)
+		? options.additionalSkillDirs
+		: [];
+	const configuredDirs = [
+		...getConfiguredAgentSkillLocations(home),
+		...optionDirs
+			.filter((dir): dir is string => typeof dir === 'string')
+			.map(dir => resolveSkillPath(dir, home))
+			.filter(Boolean),
+	];
+	for (const configuredDir of configuredDirs) {
+		entries.push(...collectSkillsFromRoot(home, configuredDir, seenPaths));
 	}
 
 	return entries;

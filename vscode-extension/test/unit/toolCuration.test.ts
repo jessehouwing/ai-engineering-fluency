@@ -12,6 +12,7 @@ import {
 	buildMcpEntriesFromSettings,
 	discoverSkillEntries,
 	analyzeToolCuration,
+	extractDescriptionFromSkillContent,
 	type RuntimeToolInfo,
 	type ExtensionInfo,
 } from '../../src/toolCuration';
@@ -503,6 +504,153 @@ test('discoverSkillEntries: ignores entries without SKILL.md', () => {
 	});
 });
 
+// ---------------------------------------------------------------------------
+// extractDescriptionFromSkillContent — YAML frontmatter parsing
+// ---------------------------------------------------------------------------
+
+test('extractDescriptionFromSkillContent: inline description value', () => {
+	const content = `---
+description: Short description here
+---
+# Heading
+`;
+	assert.equal(extractDescriptionFromSkillContent(content), 'Short description here');
+});
+
+test('extractDescriptionFromSkillContent: inline quoted description', () => {
+	const content = `---
+description: "Quoted description"
+---
+`;
+	assert.equal(extractDescriptionFromSkillContent(content), 'Quoted description');
+});
+
+test('extractDescriptionFromSkillContent: folded block scalar >- (flowstudio-style)', () => {
+	// Real-world format from flowstudio-power-automate-debug
+	const content = [
+		'---',
+		'description: >-',
+		'  Debug failing Power Automate cloud flows using the FlowStudio MCP server.',
+		'  The Graph API only shows top-level status codes. This skill gives your agent',
+		'  action-level inputs and outputs to find the actual root cause.',
+		'---',
+		'',
+	].join('\n');
+	const result = extractDescriptionFromSkillContent(content);
+	assert.ok(result?.startsWith('Debug failing Power Automate'), `got: ${result}`);
+	// Folded: lines joined with a space, no leading/trailing whitespace
+	assert.ok(!result?.includes('\n'), 'folded block should have no newlines in result');
+	assert.ok(result?.includes('FlowStudio MCP server. The Graph API'), 'lines should be space-joined');
+});
+
+test('extractDescriptionFromSkillContent: folded block scalar > (clip chomping)', () => {
+	const content = [
+		'---',
+		'description: >',
+		'  First line of the description.',
+		'  Second line continues here.',
+		'---',
+	].join('\n');
+	const result = extractDescriptionFromSkillContent(content);
+	assert.equal(result, 'First line of the description. Second line continues here.');
+});
+
+test('extractDescriptionFromSkillContent: literal block scalar | (pipe)', () => {
+	// Real-world format from agent-governance, agent-supply-chain etc.
+	const content = [
+		'---',
+		'description: |',
+		'  Governs agentic workflows in compliance with policy.',
+		'  Validates against supply chain and OWASP rules.',
+		'---',
+	].join('\n');
+	const result = extractDescriptionFromSkillContent(content);
+	assert.ok(result?.startsWith('Governs agentic workflows'), `got: ${result}`);
+	// Literal: lines joined with newline
+	assert.ok(result?.includes('\n'), 'literal block should preserve newlines');
+});
+
+test('extractDescriptionFromSkillContent: literal block scalar |- (strip chomping)', () => {
+	const content = [
+		'---',
+		'description: |-',
+		'  Evaluate agentic test suites.',
+		'---',
+	].join('\n');
+	assert.equal(extractDescriptionFromSkillContent(content), 'Evaluate agentic test suites.');
+});
+
+test('extractDescriptionFromSkillContent: literal block scalar |> (|> is treated as literal)', () => {
+	const content = [
+		'---',
+		'description: |>',
+		'  Supply chain monitoring for AI agents.',
+		'---',
+	].join('\n');
+	const result = extractDescriptionFromSkillContent(content);
+	assert.equal(result, 'Supply chain monitoring for AI agents.');
+});
+
+test('extractDescriptionFromSkillContent: multi-key frontmatter, description in the middle', () => {
+	const content = [
+		'---',
+		'name: my-skill',
+		'description: >-',
+		'  The real description across',
+		'  two lines.',
+		'version: 1',
+		'---',
+	].join('\n');
+	const result = extractDescriptionFromSkillContent(content);
+	assert.equal(result, 'The real description across two lines.');
+});
+
+test('extractDescriptionFromSkillContent: no frontmatter, falls back to inline description:', () => {
+	const content = 'description: Fallback inline description\n\nSome body text.\n';
+	assert.equal(extractDescriptionFromSkillContent(content), 'Fallback inline description');
+});
+
+test('extractDescriptionFromSkillContent: no frontmatter, falls back to first heading', () => {
+	const content = '# My Skill Title\n\nSome body text without a description key.\n';
+	assert.equal(extractDescriptionFromSkillContent(content), 'My Skill Title');
+});
+
+test('extractDescriptionFromSkillContent: empty content returns undefined', () => {
+	assert.equal(extractDescriptionFromSkillContent(''), undefined);
+});
+
+test('extractDescriptionFromSkillContent: frontmatter with no description key falls back to heading', () => {
+	const content = `---
+name: no-desc-skill
+---
+# Heading Fallback
+`;
+	assert.equal(extractDescriptionFromSkillContent(content), 'Heading Fallback');
+});
+
+test('extractDescriptionFromSkillContent: BOM-prefixed file parsed correctly', () => {
+	// Some editors write a UTF-8 BOM (\uFEFF) at the start
+	const content = '\uFEFF---\ndescription: BOM-prefixed description\n---\n';
+	assert.equal(extractDescriptionFromSkillContent(content), 'BOM-prefixed description');
+});
+
+test('extractDescriptionFromSkillContent: block scalar body ending at same-level key', () => {
+	// Ensures the body collector stops at the next same-indentation key
+	const content = [
+		'---',
+		'description: >-',
+		'  Line one.',
+		'  Line two.',
+		'other: value',
+		'---',
+	].join('\n');
+	const result = extractDescriptionFromSkillContent(content);
+	assert.equal(result, 'Line one. Line two.');
+	assert.ok(!result?.includes('other'), 'should not include the next key');
+});
+
+// ---------------------------------------------------------------------------
+
 test('discoverSkillEntries: extracts description from SKILL.md', () => {
 	withIsolatedHome(() => {
 		const tmpDir = mkTmpDir('ctt-skills-desc-');
@@ -552,6 +700,65 @@ test('discoverSkillEntries: includes user-level skills from home dir', () => {
 
 		const names = result.map(s => s.name);
 		assert.ok(names.includes('user-level-skill'), 'should discover skills from user-level dirs');
+	});
+});
+
+test('discoverSkillEntries: includes skills nested under ~/.vscode/agent-plugins', () => {
+	withIsolatedHome(() => {
+		const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
+		const pluginSkillsDir = path.join(home, '.vscode', 'agent-plugins', 'github.com', 'owner', 'repo', 'ref_main', 'skills');
+		writeSkill(pluginSkillsDir, 'plugin-skill', 'Skill from a VS Code agent plugin');
+
+		const result = discoverSkillEntries([]);
+
+		const names = result.map(s => s.name);
+		assert.ok(names.includes('plugin-skill'), 'should discover plugin skills from ~/.vscode/agent-plugins');
+	});
+});
+
+test('discoverSkillEntries: includes skills from chat.agentSkillsLocations in stable + insiders settings', () => {
+	withIsolatedHome(() => {
+		const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
+		const appData = mkTmpDir('ctt-appdata-');
+		const originalAppData = process.env.APPDATA;
+		process.env.APPDATA = appData;
+
+		try {
+			const stableCustomSkills = path.join(home, 'custom-stable-skills');
+			const insidersCustomSkills = path.join(home, 'custom-insiders-skills');
+			writeSkill(stableCustomSkills, 'stable-setting-skill', 'Configured in stable settings');
+			writeSkill(insidersCustomSkills, 'insiders-setting-skill', 'Configured in insiders settings');
+
+			const stableSettingsPath = path.join(appData, 'Code', 'User', 'settings.json');
+			const insidersSettingsPath = path.join(appData, 'Code - Insiders', 'User', 'settings.json');
+			fs.mkdirSync(path.dirname(stableSettingsPath), { recursive: true });
+			fs.mkdirSync(path.dirname(insidersSettingsPath), { recursive: true });
+			fs.writeFileSync(stableSettingsPath, JSON.stringify({ 'chat.agentSkillsLocations': [stableCustomSkills] }), 'utf8');
+			fs.writeFileSync(insidersSettingsPath, JSON.stringify({ 'chat.agentSkillsLocations': [insidersCustomSkills] }), 'utf8');
+
+			const result = discoverSkillEntries([]);
+
+			const names = result.map(s => s.name);
+			assert.ok(names.includes('stable-setting-skill'), 'should include paths from Code settings.json');
+			assert.ok(names.includes('insiders-setting-skill'), 'should include paths from Code - Insiders settings.json');
+		} finally {
+			if (originalAppData === undefined) { delete process.env.APPDATA; } else { process.env.APPDATA = originalAppData; }
+			fs.rmSync(appData, { recursive: true, force: true });
+		}
+	});
+});
+
+test('discoverSkillEntries: ignores malformed additionalSkillDirs option without throwing', () => {
+	withIsolatedHome(() => {
+		const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
+		const configuredSkills = path.join(home, 'custom-configured-skills');
+		writeSkill(configuredSkills, 'configured-option-skill', 'Configured via additional dirs option');
+
+		const result = discoverSkillEntries([], { additionalSkillDirs: [configuredSkills] });
+		const names = result.map(s => s.name);
+		assert.ok(names.includes('configured-option-skill'));
+
+		assert.doesNotThrow(() => discoverSkillEntries([], { additionalSkillDirs: { bad: true } as unknown as string[] }));
 	});
 });
 

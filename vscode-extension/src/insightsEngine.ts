@@ -894,7 +894,7 @@ export const INSIGHT_CATALOG: InsightDefinition[] = [
 		appliesTo: (ctx) => {
 			if (!ctx.curationAnalysis) { return false; }
 			const stale = ctx.curationAnalysis.unusedTools.filter(t => t.source === 'skill');
-			return stale.length >= 2;
+			return stale.length >= 1;
 		},
 		weight: 40,
 	},

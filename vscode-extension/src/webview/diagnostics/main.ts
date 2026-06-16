@@ -1505,6 +1505,9 @@ function handleGlobalClickEvent(event: MouseEvent): void {
   if (target.id === "btn-clear-cache" || target.id === "btn-clear-cache-tab") {
     handleClearCacheClick(target);
   }
+  if (target.id === "btn-reset-insights" || target.id === "btn-reset-insights-tab") {
+    vscode.postMessage({ command: "resetInsightsState" });
+  }
   if (target.id === "btn-reset-debug-counters") {
     vscode.postMessage({ command: "resetDebugCounters" });
   }
@@ -1596,6 +1599,14 @@ function setupButtonHandlers(): void {
       updateCacheNumbers();
       vscode.postMessage({ command: "clearCache" });
     });
+
+  document.getElementById("btn-reset-insights")?.addEventListener("click", () => {
+    vscode.postMessage({ command: "resetInsightsState" });
+  });
+
+  document.getElementById("btn-reset-insights-tab")?.addEventListener("click", () => {
+    vscode.postMessage({ command: "resetInsightsState" });
+  });
 
   document.addEventListener("click", handleGlobalClickEvent);
 
@@ -1989,7 +2000,10 @@ Cache is stored in VS Code's global state (extension storage) and includes:
 Clearing the cache will force the extension to re-read and re-analyze all session files on the next update.
 This can help resolve issues with stale or incorrect data.
 </p>
+<div class="button-group" style="margin-top: 8px;">
 <button class="button secondary" id="btn-clear-cache-tab"><span>🗑️</span><span>Clear Cache</span></button>
+<button class="button secondary" id="btn-reset-insights-tab"><span>💡</span><span>Reset Insights Dismissals</span></button>
+</div>
 </div>
 </div>
 </div>`;
@@ -2244,6 +2258,7 @@ code or conversation content. You can safely share this report when reporting is
 <button class="button" id="btn-copy"><span>📋</span><span>Copy to Clipboard</span></button>
 <button class="button secondary" id="btn-issue"><span>🐛</span><span>Open GitHub Issue</span></button>
 <button class="button secondary" id="btn-clear-cache"><span>🗑️</span><span>Clear Cache</span></button>
+<button class="button secondary" id="btn-reset-insights"><span>💡</span><span>Reset Insights Dismissals</span></button>
 </div>
 <div class="report-content">${escapedReport}</div>
 </div>`;

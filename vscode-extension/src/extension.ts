@@ -1061,6 +1061,26 @@ class CopilotTokenTracker implements vscode.Disposable {
 		}
 	}
 
+	public async resetInsightsState(): Promise<void> {
+		try {
+			this._insightStateBag = {};
+			this._lastInsightNudgeAt = null;
+			await this.context.globalState.update('insights.state', {});
+			await this.context.globalState.update('insights.lastNudgeAt', undefined);
+			this.refreshStatusBarInsightBadge(0);
+
+			if (this.lastUsageAnalysisStats && this.analysisPanel && this.isPanelOpen(this.analysisPanel)) {
+				const insights = this.buildCurrentInsights(this.lastUsageAnalysisStats);
+				void this.analysisPanel.webview.postMessage({ command: 'updateInsights', insights });
+			}
+
+			vscode.window.showInformationMessage('Insights dismissal state has been reset.');
+		} catch (error) {
+			this.error('Error resetting insights state:', error);
+			vscode.window.showErrorMessage('Failed to reset insights state: ' + error);
+		}
+	}
+
 	constructor(extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
 		this.extensionUri = extensionUri;
 		this.context = context;
@@ -3136,10 +3156,19 @@ class CopilotTokenTracker implements vscode.Disposable {
 		try {
 			const windowDays = vscode.workspace.getConfiguration('aiEngineeringFluency').get<number>('curation.timeWindowDays', 30);
 			const workspaceFolderPaths = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) ?? [];
+			this.postUsageLoadingProgress('curation:start', 'Collecting tools and skills for curation...', {
+				workspaces: workspaceFolderPaths.length,
+			});
 
 			// Collect available tools: VS Code runtime tools + mcp.json + extension-contributed + settings + skills.
 			const runtimeEntries = _enumerateRuntimeTools(vscode.lm.tools);
+			this.postUsageLoadingProgress('curation:runtimeTools', 'Collected runtime tools.', {
+				count: runtimeEntries.length,
+			});
 			const mcpEntries = _buildMcpEntriesFromJson(workspaceFolderPaths);
+			this.postUsageLoadingProgress('curation:mcpJson', 'Collected MCP config entries.', {
+				count: mcpEntries.length,
+			});
 			// Build the set of MCP servers that currently have at least one tool enabled in
 			// `vscode.lm.tools`. Extension-contributed entries cross-reference against this
 			// set so we can mark them as enabled or disabled (and avoid recommending the user
@@ -3151,7 +3180,21 @@ class CopilotTokenTracker implements vscode.Disposable {
 			const extensionMcpEntries = _enumerateExtensionMcpServers(vscode.extensions.all, enabledMcpServers);
 			const settingsMcpServers = vscode.workspace.getConfiguration('mcp').get<Record<string, unknown>>('servers', {});
 			const settingsMcpEntries = _buildMcpEntriesFromSettings(settingsMcpServers);
-			const skillEntries = _discoverSkillEntries(workspaceFolderPaths);
+			this.postUsageLoadingProgress('curation:mcpSources', 'Collected extension/settings MCP entries.', {
+				extensionEntries: extensionMcpEntries.length,
+				settingsEntries: settingsMcpEntries.length,
+			});
+			const configuredSkillDirsRaw = vscode.workspace.getConfiguration('chat').get<unknown>('agentSkillsLocations', []);
+			const configuredSkillDirs = Array.isArray(configuredSkillDirsRaw)
+				? configuredSkillDirsRaw.filter((dir): dir is string => typeof dir === 'string')
+				: [];
+			this.postUsageLoadingProgress('curation:skillsScanStart', 'Scanning skill directories...', {
+				configuredLocations: configuredSkillDirs.length,
+			});
+			const skillEntries = _discoverSkillEntries(workspaceFolderPaths, { additionalSkillDirs: configuredSkillDirs });
+			this.postUsageLoadingProgress('curation:skillsScanDone', 'Skill discovery completed.', {
+				skills: skillEntries.length,
+			});
 
 			// Merge: runtime entries already include MCP tools from vscode.lm.tools.
 			// Deduplicate MCP server entries (prefer runtime over all static sources).
@@ -3165,10 +3208,20 @@ class CopilotTokenTracker implements vscode.Disposable {
 			);
 
 			const availableTools = [...runtimeEntries, ...uniqueMcpEntries, ...uniqueExtensionMcpEntries, ...uniqueSettingsMcpEntries, ...skillEntries];
-			if (availableTools.length === 0) { return null; }
+			if (availableTools.length === 0) {
+				this.postUsageLoadingProgress('curation:done', 'No tools discovered for curation.', { availableTools: 0 });
+				return null;
+			}
+			this.postUsageLoadingProgress('curation:done', 'Tool curation discovery completed.', {
+				availableTools: availableTools.length,
+				skills: skillEntries.length,
+			});
 
 			return _analyzeToolCuration(availableTools, last30Days, windowDays);
 		} catch (err) {
+			this.postUsageLoadingProgress('curation:error', 'Tool curation discovery failed; continuing without curation data.', {
+				error: String(err),
+			});
 			this.log(`⚠️ Tool curation analysis failed: ${String(err)}`);
 			return null;
 		}
@@ -5638,6 +5691,14 @@ class CopilotTokenTracker implements vscode.Disposable {
 			case 'insightAction':
 					await this.dispatch(`insightAction:${message.id ?? ''}`, () => this.handleInsightAction(message));
 					break;
+			case 'traceUsageCuration': {
+				const stage = typeof message.stage === 'string' ? message.stage : 'unknown';
+				const details = message.details && typeof message.details === 'object'
+					? JSON.stringify(message.details)
+					: '{}';
+				this.log(`🧭 [Tool Curation Trace] ${stage} ${details}`);
+				break;
+			}
 		}
 	}
 
@@ -5679,8 +5740,13 @@ class CopilotTokenTracker implements vscode.Disposable {
 
 	private async loadAnalysisStatsInBackground(panel: vscode.WebviewPanel): Promise<void> {
 		try {
+			this.postUsageLoadingProgress('start', 'Starting usage analysis...');
 			const analysisStats = await this.calculateUsageAnalysisStats(true);
 			if (!this.analysisPanel || this.analysisPanel !== panel) { return; }
+			this.postUsageLoadingProgress('ready', 'Usage analysis ready.', {
+				availableTools: analysisStats.curationAnalysis?.availableTools.length ?? 0,
+				unusedTools: analysisStats.curationAnalysis?.unusedTools.length ?? 0,
+			});
 			void this.analysisPanel.webview.postMessage({
 				command: 'updateStats',
 				data: {
@@ -5696,10 +5762,23 @@ class CopilotTokenTracker implements vscode.Disposable {
 			});
 		} catch (err) {
 			this.error(`Failed to load usage analysis stats: ${err}`);
+			this.postUsageLoadingProgress('error', 'Failed to calculate usage analysis.', {
+				error: String(err),
+			});
 			if (this.analysisPanel && this.analysisPanel === panel) {
 				void this.analysisPanel.webview.postMessage({ command: 'updateStatsError', error: String(err) });
 			}
 		}
+	}
+
+	private postUsageLoadingProgress(stage: string, message: string, details?: Record<string, unknown>): void {
+		if (!this.analysisPanel) { return; }
+		void this.analysisPanel.webview.postMessage({
+			command: 'usageLoadingProgress',
+			stage,
+			message,
+			details: details ?? {},
+		});
 	}
 
 	private async handleAnalyseRepository(workspacePath?: string): Promise<void> {
@@ -7699,6 +7778,7 @@ ${this.getLoadingHtmlScript()}
       copyReport: () => this.dispatch('copyReport:diagnostics', () => this.diagHandleCopyReport()),
       openIssue: () => this.dispatch('openIssue:diagnostics', () => this.diagHandleOpenIssue()),
       clearCache: () => this.dispatch('clearCache:diagnostics', () => this.diagHandleClearCache()),
+			resetInsightsState: () => this.dispatch('resetInsightsState:diagnostics', () => this.resetInsightsState()),
       configureBackend: () => this.dispatch('configureBackend:diagnostics', () => this.diagHandleConfigureBackend()),
       configureTeamServer: () => this.dispatch('configureTeamServer:diagnostics', () => this.diagHandleConfigureTeamServer()),
       openSettings: () => this.dispatch('openSettings:diagnostics', () => vscode.commands.executeCommand("workbench.action.openSettings", "aiEngineeringFluency.backend")),
@@ -8950,6 +9030,14 @@ function registerDiagnosticAndAuthCommands(context: vscode.ExtensionContext, tok
     },
   );
 
+	const resetInsightsStateCommand = vscode.commands.registerCommand(
+		"aiEngineeringFluency.resetInsightsState",
+		async () => {
+			tokenTracker.log("Reset insights state command called");
+			await tokenTracker.resetInsightsState();
+		},
+	);
+
   // Register the GitHub authentication command
   const authenticateGitHubCommand = vscode.commands.registerCommand(
     "aiEngineeringFluency.authenticateGitHub",
@@ -8980,6 +9068,7 @@ function registerDiagnosticAndAuthCommands(context: vscode.ExtensionContext, tok
     runLocalViewRegressionCommand,
     generateDiagnosticReportCommand,
     clearCacheCommand,
+		resetInsightsStateCommand,
     authenticateGitHubCommand,
     signOutGitHubCommand,
     windsurfDiagnosticsCommand,
