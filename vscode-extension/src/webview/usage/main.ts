@@ -101,6 +101,7 @@ interface AvailableToolEntry {
 	server?: string;
 	extensionId?: string;
 	skillPath?: string;
+	pluginName?: string;
 	configFiles?: string[];
 	enabled?: boolean;
 	extensionActive?: boolean;
@@ -119,6 +120,7 @@ interface ToolCurationAnalysis {
 	usedTools: { name: string; count: number }[];
 	unusedTools: AvailableToolEntry[];
 	underusedMcpServers: { server: string; availableToolCount: number; usedToolCount: number; configFiles?: string[]; extensionId?: string; enabled?: boolean; extensionActive?: boolean }[];
+	underusedAgentPlugins: { pluginName: string; availableSkillCount: number; usedSkillCount: number }[];
 	estimatedPromptBloat: { totalTokens: number; byServer: Record<string, number> };
 	recommendations: ToolCurationRecommendation[];
 }
@@ -1162,6 +1164,7 @@ function sanitizeStats(raw: any): UsageAnalysisStats | null {
 				usedTools: Array.isArray(ca.usedTools) ? ca.usedTools : [],
 				unusedTools: Array.isArray(ca.unusedTools) ? ca.unusedTools : [],
 				underusedMcpServers: Array.isArray(ca.underusedMcpServers) ? ca.underusedMcpServers : [],
+				underusedAgentPlugins: Array.isArray(ca.underusedAgentPlugins) ? ca.underusedAgentPlugins : [],
 				estimatedPromptBloat: ca.estimatedPromptBloat && typeof ca.estimatedPromptBloat === 'object'
 					? ca.estimatedPromptBloat
 					: { totalTokens: 0, byServer: {} },
@@ -1973,27 +1976,26 @@ function buildUnusedSkillsHtml(unusedSkills: AvailableToolEntry[]): string {
 	const rows = unusedSkills.map(s => {
 		const skillFile = s.configFiles?.[0];
 		const viewLink = skillFile
-			? `<button class="curation-file-btn" data-command="openFile" data-path="${escapeHtml(skillFile)}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:12px;text-decoration:underline;" title="Open ${escapeHtml(skillFile)}">View skill def.</button>`
+			? `<button class="curation-file-btn" data-command="openFile" data-path="${escapeHtml(skillFile)}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:12px;text-decoration:underline;" title="Open ${escapeHtml(skillFile)}">View skill</button>`
 			: '—';
-		// Derive a human-readable source label from the skillPath / configFiles.
-		// skillPath is workspace-relative (e.g. ".github/skills/pdf/SKILL.md");
-		// user-scope paths have no workspace-relative path (s.skillPath starts with HOME).
+		// Derive a human-readable source label. Plugin skills show the plugin name.
 		let sourceLabel = '—';
-		if (s.skillPath) {
+		let manageBtn = '';
+		if (s.pluginName) {
+			sourceLabel = `Plugin: ${s.pluginName}`;
+			manageBtn = ` <button class="curation-file-btn" data-command="openAgentPlugins" data-plugin-name="${escapeHtml(s.pluginName)}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Open Extensions view filtered to agent plugins">manage</button>`;
+		} else if (s.skillPath) {
 			if (s.skillPath.startsWith('.github/skills')) { sourceLabel = 'Workspace (.github)'; }
 			else if (s.skillPath.startsWith('.claude/skills')) { sourceLabel = 'Workspace (.claude)'; }
 			else if (s.skillPath.startsWith('.agents/skills')) { sourceLabel = 'Workspace (.agents)'; }
 			else { sourceLabel = 'User (~)'; }
 		}
-		// Estimate per-skill prompt token overhead using the same formula as the backend
-		// (name + description + ~10 chars of JSON framing, divided by 4 chars/token).
 		const estTokens = Math.round((s.name.length + s.description.length + 10) / 4);
-		const overheadCell = `~${estTokens.toLocaleString()} tokens`;
 		return `<tr>
 		<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">${escapeHtml(s.name)}</td>
-		<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">${sourceLabel}</td>
+		<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">${escapeHtml(sourceLabel)}${manageBtn}</td>
 		<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(s.description)}">${escapeHtml(s.description)}</td>
-		<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">${overheadCell}</td>
+		<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">~${estTokens.toLocaleString()} tokens</td>
 		<td style="padding:5px 8px; font-size:12px; white-space:nowrap;">${viewLink}</td>
 	</tr>`;
 	}).join('');
@@ -2012,7 +2014,46 @@ function buildUnusedSkillsHtml(unusedSkills: AvailableToolEntry[]): string {
 				</tr></thead>
 				<tbody>${rows}</tbody>
 			</table>
-			<div style="margin-top:8px; font-size:11px; color:var(--text-secondary);">💡 Est. overhead is per agent interaction (skill descriptions appear in every prompt). Update skill descriptions so Copilot selects them, or remove skills that are no longer needed.</div>
+			<div style="margin-top:8px; font-size:11px; color:var(--text-secondary);">💡 Est. overhead is per agent interaction. For plugin skills, click <em>manage</em> to open the agent plugins view where you can uninstall the plugin. For workspace skills, update the description or remove the SKILL.md.</div>
+		</div>
+	</details>`;
+}
+
+function buildUnderusedAgentPluginsHtml(underusedAgentPlugins: ToolCurationAnalysis['underusedAgentPlugins'], windowDays: number): string {
+	if (underusedAgentPlugins.length === 0) { return ''; }
+	const rows = underusedAgentPlugins.map(p => {
+		const manageBtn = `<button class="curation-file-btn" data-command="openAgentPlugins" data-plugin-name="${escapeHtml(p.pluginName)}" style="background:none;border:none;padding:0;cursor:pointer;color:var(--link-color);font-size:11px;text-decoration:underline;" title="Open Extensions view filtered to @agentPlugins ${escapeHtml(p.pluginName)}">Manage Plugin</button>`;
+		const usageClass = p.usedSkillCount === 0 ? '' : 'plugin-has-usage';
+		return `<tr class="${usageClass}">
+			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px; white-space:nowrap;">${escapeHtml(p.pluginName)}</td>
+			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${p.availableSkillCount}</td>
+			<td style="padding:5px 8px; color:var(--text-primary); font-size:12px;">${p.usedSkillCount}</td>
+			<td style="padding:5px 8px; font-size:12px;">${manageBtn}</td>
+		</tr>`;
+	}).join('');
+	const unusedCount = underusedAgentPlugins.filter(p => p.usedSkillCount === 0).length;
+	const usedCount = underusedAgentPlugins.length - unusedCount;
+	return `<details style="margin-top:8px;" open>
+		<summary style="cursor:pointer; font-size:13px; font-weight:600; color:var(--text-primary); padding:6px 0;">
+			🧩 Agent Plugins in Last ${windowDays} Days (${underusedAgentPlugins.length})
+		</summary>
+		<style>#plugin-hide-toggle:checked ~ .plugin-table-wrap .plugin-has-usage { display: none; }</style>
+		<div style="display:flex; align-items:center; gap:6px; margin:6px 0;">
+			<input type="checkbox" id="plugin-hide-toggle" checked style="margin:0; cursor:pointer; flex-shrink:0;">
+			<label for="plugin-hide-toggle" style="font-size:12px; color:var(--text-primary); cursor:pointer; user-select:none;">Hide plugins with usage</label>
+			<span style="font-size:11px; color:var(--text-secondary);">${unusedCount} with no usage · ${usedCount} with usage</span>
+		</div>
+		<div class="plugin-table-wrap" style="margin-top:8px; overflow-x:auto;">
+			<table style="width:100%; border-collapse:collapse; font-size:12px;">
+				<thead><tr style="border-bottom:1px solid var(--border-color);">
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Plugin</th>
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Skills Available</th>
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Skills Used</th>
+					<th style="padding:5px 8px; text-align:left; color:var(--text-primary); font-weight:600; font-size:12px;">Action</th>
+				</tr></thead>
+				<tbody>${rows}</tbody>
+			</table>
+			<div style="margin-top:8px; font-size:11px; color:var(--text-secondary);">💡 Click <em>Manage Plugin</em> to open the Extensions view filtered to <code>@agentPlugins</code> where you can uninstall unused plugins to reclaim prompt budget.</div>
 		</div>
 	</details>`;
 }
@@ -2057,7 +2098,7 @@ function buildCurationSectionHtml(curation: ToolCurationAnalysis | null | undefi
 			return '';
 		}
 
-		const { availableTools, unusedTools, underusedMcpServers, estimatedPromptBloat, windowDays } = curation;
+		const { availableTools, unusedTools, underusedMcpServers, underusedAgentPlugins, estimatedPromptBloat, windowDays } = curation;
 		const unusedSkills = unusedTools.filter(t => t.source === 'skill');
 		const builtinTools = availableTools.filter(t => t.source === 'builtin');
 
@@ -2075,6 +2116,7 @@ function buildCurationSectionHtml(curation: ToolCurationAnalysis | null | undefi
 				<div class="section-subtitle" style="color:var(--text-primary); opacity:0.75;">Compare available tools against actual usage to reduce prompt overhead (last ${windowDays} days)</div>
 				${buildCurationSummaryHtml(availableTools, unusedTools, estimatedPromptBloat)}
 				${buildUnusedMcpHtml(underusedMcpServers, estimatedPromptBloat, windowDays)}
+				${buildUnderusedAgentPluginsHtml(underusedAgentPlugins, windowDays)}
 				${buildBuiltinToolsHtml(builtinTools, estimatedPromptBloat)}
 				${buildUnusedSkillsHtml(unusedSkills)}
 			</div>`;
@@ -2294,6 +2336,9 @@ function wireCurationButtons(): void {
 					} else if (command === 'manageExtension') {
 						const extensionId = btn.getAttribute('data-extension-id');
 						if (extensionId) { vscode.postMessage({ command: 'manageExtension', extensionId }); }
+					} else if (command === 'openAgentPlugins') {
+						const pluginName = btn.getAttribute('data-plugin-name') ?? '';
+						vscode.postMessage({ command: 'openAgentPlugins', pluginName });
 					} else {
 						vscode.postMessage({ command });
 					}

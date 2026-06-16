@@ -731,6 +731,14 @@ class CopilotTokenTracker implements vscode.Disposable {
 				if (picked) { await vscode.window.showTextDocument(vscode.Uri.file(picked.fsPath)); }
 			},
 			searchMcpExtensions:    () => vscode.commands.executeCommand('workbench.extensions.search', '@tag:mcp'),
+			openAgentPlugins:       () => {
+				// Open the Extensions view filtered to agent plugins. When a plugin name
+				// is provided the query becomes "@agentPlugins <name>" so the user lands
+				// directly on the relevant plugin rather than the whole installed list.
+				const pluginName = typeof message.pluginName === 'string' && message.pluginName ? message.pluginName : '';
+				const query = pluginName ? `@agentPlugins ${pluginName}` : '@agentPlugins';
+				return vscode.commands.executeCommand('workbench.extensions.search', query);
+			},
 			manageExtension:        async () => {
 				// Open the Extensions view details pane for a specific extension.
 				// VS Code can't tell us whether the user disabled the extension's tools in the chat

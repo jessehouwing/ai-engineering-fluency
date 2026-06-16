@@ -381,7 +381,7 @@ function readJsonFile(filePath: string): unknown {
 }
 
 /** Collect skill entries from a single `.github/skills` directory. */
-function collectSkillsFromDirectory(folder: string, skillsDir: string, seenPaths: Set<string>): AvailableToolEntry[] {
+function collectSkillsFromDirectory(folder: string, skillsDir: string, seenPaths: Set<string>, pluginName?: string): AvailableToolEntry[] {
 	let skillDirs: fs.Dirent[];
 	try {
 		skillDirs = fs.readdirSync(skillsDir, { withFileTypes: true });
@@ -397,7 +397,9 @@ function collectSkillsFromDirectory(folder: string, skillsDir: string, seenPaths
 		seenPaths.add(skillMdPath);
 		const description = readSkillDescription(skillMdPath, `Skill: ${entry.name}`);
 		const relativePath = path.relative(folder, skillMdPath).replace(/\\/g, '/');
-		entries.push({ name: entry.name, description, source: 'skill', skillPath: relativePath, configFiles: [skillMdPath] });
+		const entry2: AvailableToolEntry = { name: entry.name, description, source: 'skill', skillPath: relativePath, configFiles: [skillMdPath] };
+		if (pluginName) { entry2.pluginName = pluginName; }
+		entries.push(entry2);
 	}
 	return entries;
 }
@@ -591,34 +593,38 @@ function resolvePluginSkillDirs(pluginDir: string): string[] {
  * sub-directories.  This function replicates that logic so we only report
  * skills that are actually loaded.
  */
-function resolveInstalledPluginSkillDirs(agentPluginsHome: string): string[] {
+function resolveInstalledPluginSkillDirs(agentPluginsHome: string): { dir: string; pluginName: string }[] {
 	const installedJson = readJsonFile(path.join(agentPluginsHome, 'installed.json')) as { installed?: unknown[] } | undefined;
 	if (!Array.isArray(installedJson?.installed)) { return []; }
 
-	const skillDirs: string[] = [];
+	const results: { dir: string; pluginName: string }[] = [];
 	for (const entry of installedJson.installed) {
 		if (typeof entry !== 'object' || entry === null) { continue; }
-		const pluginUriStr = (entry as Record<string, unknown>)['pluginUri'];
+		const rec = entry as Record<string, unknown>;
+		const pluginUriStr = rec['pluginUri'];
 		if (typeof pluginUriStr !== 'string') { continue; }
 		const pluginDir = fileUriToPath(pluginUriStr);
 		if (!pluginDir || !fs.existsSync(pluginDir)) { continue; }
-		skillDirs.push(...resolvePluginSkillDirs(pluginDir));
+		const pluginName = typeof rec['name'] === 'string' && rec['name'] ? rec['name'] : path.basename(pluginDir);
+		for (const dir of resolvePluginSkillDirs(pluginDir)) {
+			results.push({ dir, pluginName });
+		}
 	}
-	return skillDirs;
+	return results;
 }
 
-function userAgentPluginSkillDirs(): string[] {
+function userAgentPluginSkillDirs(): { dir: string; pluginName: string }[] {
 	const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
 	if (!home) { return []; }
 	const pluginHomes = [
 		path.join(home, '.vscode', 'agent-plugins'),
 		path.join(home, '.vscode-insiders', 'agent-plugins'),
 	];
-	const dirs: string[] = [];
+	const results: { dir: string; pluginName: string }[] = [];
 	for (const pluginHome of pluginHomes) {
-		dirs.push(...resolveInstalledPluginSkillDirs(pluginHome));
+		results.push(...resolveInstalledPluginSkillDirs(pluginHome));
 	}
-	return dirs;
+	return results;
 }
 
 /**
@@ -661,8 +667,8 @@ export function discoverSkillEntries(
 	// and each plugin's plugin.json, matching VS Code's actual loading behaviour.
 	// This ensures we only report skills that are genuinely loaded into sessions,
 	// not every SKILL.md that happens to exist in a cloned plugin repository.
-	for (const skillsDir of userAgentPluginSkillDirs()) {
-		entries.push(...collectSkillsFromDirectory(home, skillsDir, seenPaths));
+	for (const { dir, pluginName } of userAgentPluginSkillDirs()) {
+		entries.push(...collectSkillsFromDirectory(home, dir, seenPaths, pluginName));
 	}
 
 	// chat.agentSkillsLocations from VS Code stable/insiders settings + extension-provided paths.
@@ -794,9 +800,24 @@ function buildCurationRecommendations(
 	return recs;
 }
 
+function computeUnderusedAgentPlugins(
+	availableTools: AvailableToolEntry[],
+	usedNames: Set<string>,
+): ToolCurationAnalysis['underusedAgentPlugins'] {
+	const pluginMap = new Map<string, { available: number; used: number }>();
+	for (const t of availableTools) {
+		if (t.source !== 'skill' || !t.pluginName) { continue; }
+		const rec = pluginMap.get(t.pluginName) ?? { available: 0, used: 0 };
+		rec.available++;
+		if (usedNames.has(t.name)) { rec.used++; }
+		pluginMap.set(t.pluginName, rec);
+	}
+	return Array.from(pluginMap.entries())
+		.map(([pluginName, { available, used }]) => ({ pluginName, availableSkillCount: available, usedSkillCount: used }))
+		.sort((a, b) => a.usedSkillCount - b.usedSkillCount);
+}
+
 /**
- * Perform the full curation analysis.
- *
  * @param availableTools  - Tools visible in the current environment (runtime + mcp.json + skills).
  * @param usagePeriod     - Aggregated usage from the look-back window (use `last30Days` or custom).
  * @param windowDays      - Look-back window used to label the result (informational only).
@@ -834,6 +855,7 @@ export function analyzeToolCuration(
 	});
 
 	const underusedMcpServers = computeUnderusedMcpServers(availableTools, usedNames, usagePeriod);
+	const underusedAgentPlugins = computeUnderusedAgentPlugins(availableTools, usedNames);
 	const estimatedPromptBloat = buildBloatEstimate(unusedTools);
 	const recommendations = buildCurationRecommendations(underusedMcpServers, unusedTools, windowDays);
 
@@ -843,6 +865,7 @@ export function analyzeToolCuration(
 		usedTools: usedToolsArray,
 		unusedTools,
 		underusedMcpServers,
+		underusedAgentPlugins,
 		estimatedPromptBloat,
 		recommendations,
 	};

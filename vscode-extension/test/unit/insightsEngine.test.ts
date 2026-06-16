@@ -141,6 +141,7 @@ function makeCurationAnalysis(totalTokens: number, unusedToolCount: number): Too
 			source: 'mcp' as const,
 		})),
 		underusedMcpServers: [],
+		underusedAgentPlugins: [],
 		estimatedPromptBloat: { totalTokens, byServer: {} },
 		recommendations: [],
 	};
@@ -212,6 +213,7 @@ test('stale-skills: fires when exactly one unused skill exists', () => {
 				{ name: 'my-skill', description: 'Skill', source: 'skill', skillPath: '.github/skills/my-skill/SKILL.md' },
 			],
 			underusedMcpServers: [],
+			underusedAgentPlugins: [],
 			estimatedPromptBloat: { totalTokens: 0, byServer: {} },
 			recommendations: [],
 		},
@@ -233,6 +235,7 @@ test('stale-skills: does not fire when no unused skills exist', () => {
 			usedTools: [],
 			unusedTools: [],
 			underusedMcpServers: [],
+			underusedAgentPlugins: [],
 			estimatedPromptBloat: { totalTokens: 0, byServer: {} },
 			recommendations: [],
 		},
