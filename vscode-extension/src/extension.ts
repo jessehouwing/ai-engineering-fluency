@@ -3221,7 +3221,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 				this.postUsageLoadingProgress('curation:done', 'No tools discovered for curation.', { availableTools: 0 });
 				return null;
 			}
-			this.postUsageLoadingProgress('curation:analyzing', 'Analysing tool usage patterns…', {
+			this.postUsageLoadingProgress('curation:analyzing', 'Analyzing tool usage patterns…', {
 				availableTools: availableTools.length,
 				skills: skillEntries.length,
 			});

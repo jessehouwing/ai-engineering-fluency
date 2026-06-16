@@ -957,3 +957,24 @@ test('analyzeToolCuration: still flags extension-contributed server whose tools 
 	assert.equal(result.underusedMcpServers[0].enabled, true);
 	assert.equal(result.underusedMcpServers[0].extensionId, 'pub.ext');
 });
+
+test('analyzeToolCuration: avoids ambiguous per-plugin attribution for shared skill names', () => {
+	const available = [
+		{ name: 'shared-skill', description: 'Skill in plugin A', source: 'skill' as const, pluginName: 'plugin-a' },
+		{ name: 'shared-skill', description: 'Skill in plugin B', source: 'skill' as const, pluginName: 'plugin-b' },
+		{ name: 'unique-a', description: 'Unique skill in plugin A', source: 'skill' as const, pluginName: 'plugin-a' },
+	];
+	const period: UsageAnalysisPeriod = {
+		...emptyPeriod(),
+		toolCalls: { total: 2, byTool: { 'shared-skill': 1, 'unique-a': 1 } },
+	};
+
+	const result = analyzeToolCuration(available, period, 30);
+	const pluginA = result.underusedAgentPlugins.find(p => p.pluginName === 'plugin-a');
+	const pluginB = result.underusedAgentPlugins.find(p => p.pluginName === 'plugin-b');
+
+	assert.equal(pluginA?.availableSkillCount, 2);
+	assert.equal(pluginA?.usedSkillCount, 1, 'only uniquely attributable skill usage should count for plugin A');
+	assert.equal(pluginB?.availableSkillCount, 1);
+	assert.equal(pluginB?.usedSkillCount, 0, 'shared skill usage should not be attributed to plugin B');
+});

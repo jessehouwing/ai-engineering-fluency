@@ -12,6 +12,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 
 import type {
 	AvailableToolEntry,
@@ -418,13 +419,18 @@ const SKILL_DIR_SCAN_EXCLUDES = new Set([
 	'.vscode',
 ]);
 
-function findNestedSkillsDirectories(rootDir: string, maxDepth = 8): string[] {
+const DEFAULT_NESTED_SKILLS_SCAN_DEPTH = 4;
+const MAX_NESTED_SKILLS_SCAN_DIRS = 400;
+
+function findNestedSkillsDirectories(rootDir: string, maxDepth = DEFAULT_NESTED_SKILLS_SCAN_DEPTH): string[] {
 	const found: string[] = [];
 	const visited = new Set<string>();
+	let scannedDirs = 0;
 
 	const walk = (currentDir: string, depth: number): void => {
-		if (depth > maxDepth || visited.has(currentDir)) { return; }
+		if (depth > maxDepth || visited.has(currentDir) || scannedDirs >= MAX_NESTED_SKILLS_SCAN_DIRS) { return; }
 		visited.add(currentDir);
+		scannedDirs++;
 
 		let entries: fs.Dirent[];
 		try {
@@ -555,10 +561,7 @@ function fileUriToPath(uri: string): string | undefined {
 	try {
 		const url = new URL(uri);
 		if (url.protocol !== 'file:') { return undefined; }
-		// On Windows, pathname starts with /C:/… — remove the leading slash.
-		return decodeURIComponent(
-			process.platform === 'win32' ? url.pathname.replace(/^\//, '') : url.pathname
-		);
+		return path.normalize(fileURLToPath(url));
 	} catch {
 		return undefined;
 	}
@@ -808,12 +811,24 @@ function computeUnderusedAgentPlugins(
 	availableTools: AvailableToolEntry[],
 	usedNames: Set<string>,
 ): ToolCurationAnalysis['underusedAgentPlugins'] {
+	const pluginNamesBySkill = new Map<string, Set<string>>();
+	for (const t of availableTools) {
+		if (t.source !== 'skill' || !t.pluginName) { continue; }
+		const pluginNames = pluginNamesBySkill.get(t.name) ?? new Set<string>();
+		pluginNames.add(t.pluginName);
+		pluginNamesBySkill.set(t.name, pluginNames);
+	}
+
 	const pluginMap = new Map<string, { available: number; used: number }>();
 	for (const t of availableTools) {
 		if (t.source !== 'skill' || !t.pluginName) { continue; }
 		const rec = pluginMap.get(t.pluginName) ?? { available: 0, used: 0 };
 		rec.available++;
-		if (usedNames.has(t.name)) { rec.used++; }
+		// Skill usage telemetry is keyed by skill name only. When multiple plugins share
+		// the same name we conservatively avoid attributing that usage to a specific plugin.
+		if (usedNames.has(t.name) && (pluginNamesBySkill.get(t.name)?.size ?? 0) === 1) {
+			rec.used++;
+		}
 		pluginMap.set(t.pluginName, rec);
 	}
 	return Array.from(pluginMap.entries())
