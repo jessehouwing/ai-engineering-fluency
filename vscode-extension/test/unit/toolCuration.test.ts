@@ -703,11 +703,22 @@ test('discoverSkillEntries: includes user-level skills from home dir', () => {
 	});
 });
 
-test('discoverSkillEntries: includes skills nested under ~/.vscode/agent-plugins', () => {
+test('discoverSkillEntries: includes skills from installed agent-plugins via installed.json', () => {
 	withIsolatedHome(() => {
 		const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
-		const pluginSkillsDir = path.join(home, '.vscode', 'agent-plugins', 'github.com', 'owner', 'repo', 'ref_main', 'skills');
+		const pluginHome = path.join(home, '.vscode', 'agent-plugins');
+		const pluginDir = path.join(pluginHome, 'github.com', 'owner', 'repo', 'ref_main');
+		const pluginSkillsDir = path.join(pluginDir, 'skills');
 		writeSkill(pluginSkillsDir, 'plugin-skill', 'Skill from a VS Code agent plugin');
+
+		fs.writeFileSync(path.join(pluginDir, 'plugin.json'), JSON.stringify({ skills: ['./skills/'] }));
+		const pluginUriPath = process.platform === 'win32'
+			? '/' + pluginDir.replace(/\\/g, '/')
+			: pluginDir;
+		fs.writeFileSync(path.join(pluginHome, 'installed.json'), JSON.stringify({
+			version: 1,
+			installed: [{ pluginUri: `file://${pluginUriPath}`, name: 'my-plugin' }],
+		}));
 
 		const result = discoverSkillEntries([]);
 
@@ -759,6 +770,92 @@ test('discoverSkillEntries: ignores malformed additionalSkillDirs option without
 		assert.ok(names.includes('configured-option-skill'));
 
 		assert.doesNotThrow(() => discoverSkillEntries([], { additionalSkillDirs: { bad: true } as unknown as string[] }));
+	});
+});
+
+// ---------------------------------------------------------------------------
+// discoverSkillEntries — agent-plugins installed.json discovery
+// ---------------------------------------------------------------------------
+
+test('discoverSkillEntries: agent-plugins: loads only declared skills/ from plugin.json', () => {
+	withIsolatedHome(() => {
+		const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
+		const pluginHome = path.join(home, '.vscode', 'agent-plugins');
+		const pluginDir = path.join(pluginHome, 'github.com', 'dotnet', 'skills', 'plugins', 'dotnet');
+		const declaredSkillsDir = path.join(pluginDir, 'skills');
+		const undeclaredSkillsDir = path.join(pluginHome, 'github.com', 'dotnet', 'skills', '.github', 'skills');
+
+		// Skill inside declared skills/ dir
+		writeSkill(declaredSkillsDir, 'csharp-scripts', 'Run C# scripts');
+		// Skill outside declared path (elsewhere in the repo) — must NOT be loaded
+		writeSkill(undeclaredSkillsDir, 'hidden-skill', 'Should not appear');
+
+		// plugin.json declares only ./skills/
+		fs.writeFileSync(path.join(pluginDir, 'plugin.json'), JSON.stringify({ name: 'dotnet', skills: ['./skills/'] }));
+
+		// installed.json points to this plugin — encode path as a file:// URI
+		const pluginUriPath = process.platform === 'win32'
+			? '/' + pluginDir.replace(/\\/g, '/')
+			: pluginDir;
+		fs.writeFileSync(path.join(pluginHome, 'installed.json'), JSON.stringify({
+			version: 1,
+			installed: [{ pluginUri: `file://${pluginUriPath}`, name: 'dotnet' }],
+		}));
+
+		const result = discoverSkillEntries([]);
+		const names = result.map(s => s.name);
+		assert.ok(names.includes('csharp-scripts'), 'declared skill should be discovered');
+		assert.ok(!names.includes('hidden-skill'), 'undeclared skill should NOT be discovered');
+	});
+});
+
+test('discoverSkillEntries: agent-plugins: ignores missing pluginUri directories gracefully', () => {
+	withIsolatedHome(() => {
+		const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
+		const pluginHome = path.join(home, '.vscode', 'agent-plugins');
+		fs.mkdirSync(pluginHome, { recursive: true });
+
+		// installed.json points to a non-existent directory
+		fs.writeFileSync(path.join(pluginHome, 'installed.json'), JSON.stringify({
+			version: 1,
+			installed: [{ pluginUri: 'file:///nonexistent/plugin/path', name: 'ghost' }],
+		}));
+
+		assert.doesNotThrow(() => discoverSkillEntries([]));
+		assert.deepEqual(discoverSkillEntries([]), []);
+	});
+});
+
+test('discoverSkillEntries: agent-plugins: missing installed.json returns no skills', () => {
+	withIsolatedHome(() => {
+		const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
+		const pluginHome = path.join(home, '.vscode', 'agent-plugins');
+		fs.mkdirSync(pluginHome, { recursive: true });
+		// No installed.json written
+		assert.deepEqual(discoverSkillEntries([]), []);
+	});
+});
+
+test('discoverSkillEntries: agent-plugins: plugin without plugin.json defaults to ./skills/', () => {
+	withIsolatedHome(() => {
+		const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
+		const pluginHome = path.join(home, '.vscode', 'agent-plugins');
+		const pluginDir = path.join(pluginHome, 'my-plugin');
+		const skillsDir = path.join(pluginDir, 'skills');
+
+		writeSkill(skillsDir, 'my-skill', 'A skill');
+		// No plugin.json written — should default to ./skills/
+
+		const pluginUriPath = process.platform === 'win32'
+			? '/' + pluginDir.replace(/\\/g, '/')
+			: pluginDir;
+		fs.writeFileSync(path.join(pluginHome, 'installed.json'), JSON.stringify({
+			version: 1,
+			installed: [{ pluginUri: `file://${pluginUriPath}`, name: 'my-plugin' }],
+		}));
+
+		const result = discoverSkillEntries([]);
+		assert.ok(result.map(s => s.name).includes('my-skill'), 'default ./skills/ fallback should work');
 	});
 });
 

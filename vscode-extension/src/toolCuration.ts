@@ -541,13 +541,84 @@ function userSkillDirs(): string[] {
 	];
 }
 
-function userAgentPluginRoots(): string[] {
+/**
+ * Decode a `file://` URI (as stored in `installed.json`) to a local filesystem
+ * path.  Returns `undefined` if the URI is malformed or not a `file:` URI.
+ */
+function fileUriToPath(uri: string): string | undefined {
+	try {
+		const url = new URL(uri);
+		if (url.protocol !== 'file:') { return undefined; }
+		// On Windows, pathname starts with /C:/… — remove the leading slash.
+		return decodeURIComponent(
+			process.platform === 'win32' ? url.pathname.replace(/^\//, '') : url.pathname
+		);
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Given a plugin directory, read `plugin.json` and return the resolved
+ * absolute paths of all declared `"skills"` entries.  Falls back to
+ * `./skills/` when the key is absent.
+ */
+function resolvePluginSkillDirs(pluginDir: string): string[] {
+	const pluginJson = readJsonFile(path.join(pluginDir, 'plugin.json')) as { skills?: unknown } | undefined;
+
+	let declaredSkills: string[];
+	if (Array.isArray(pluginJson?.skills)) {
+		declaredSkills = (pluginJson.skills as unknown[]).filter((s): s is string => typeof s === 'string');
+	} else if (typeof pluginJson?.skills === 'string') {
+		declaredSkills = [pluginJson.skills];
+	} else {
+		declaredSkills = ['./skills/'];
+	}
+
+	return declaredSkills
+		.map(s => path.resolve(pluginDir, s))
+		.filter(p => fs.existsSync(p));
+}
+
+/**
+ * Read `installed.json` from an `agent-plugins` home directory and resolve the
+ * declared `"skills"` paths from each plugin's `plugin.json`, mirroring the
+ * VS Code loading behaviour.
+ *
+ * VS Code does NOT scan the entire cloned repo.  It reads `installed.json` to
+ * find which plugin directories are installed, then reads each plugin's
+ * `plugin.json` to find the `"skills"` array, and only scans those declared
+ * sub-directories.  This function replicates that logic so we only report
+ * skills that are actually loaded.
+ */
+function resolveInstalledPluginSkillDirs(agentPluginsHome: string): string[] {
+	const installedJson = readJsonFile(path.join(agentPluginsHome, 'installed.json')) as { installed?: unknown[] } | undefined;
+	if (!Array.isArray(installedJson?.installed)) { return []; }
+
+	const skillDirs: string[] = [];
+	for (const entry of installedJson.installed) {
+		if (typeof entry !== 'object' || entry === null) { continue; }
+		const pluginUriStr = (entry as Record<string, unknown>)['pluginUri'];
+		if (typeof pluginUriStr !== 'string') { continue; }
+		const pluginDir = fileUriToPath(pluginUriStr);
+		if (!pluginDir || !fs.existsSync(pluginDir)) { continue; }
+		skillDirs.push(...resolvePluginSkillDirs(pluginDir));
+	}
+	return skillDirs;
+}
+
+function userAgentPluginSkillDirs(): string[] {
 	const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
 	if (!home) { return []; }
-	return [
+	const pluginHomes = [
 		path.join(home, '.vscode', 'agent-plugins'),
 		path.join(home, '.vscode-insiders', 'agent-plugins'),
 	];
+	const dirs: string[] = [];
+	for (const pluginHome of pluginHomes) {
+		dirs.push(...resolveInstalledPluginSkillDirs(pluginHome));
+	}
+	return dirs;
 }
 
 /**
@@ -586,9 +657,12 @@ export function discoverSkillEntries(
 		entries.push(...collectSkillsFromRoot(home, skillsDir, seenPaths));
 	}
 
-	// VS Code user plugin locations (stable + insiders) may contain nested `skills/` folders.
-	for (const pluginRoot of userAgentPluginRoots()) {
-		entries.push(...collectSkillsFromRoot(home, pluginRoot, seenPaths));
+	// VS Code agent-plugin skill directories — resolved by reading installed.json
+	// and each plugin's plugin.json, matching VS Code's actual loading behaviour.
+	// This ensures we only report skills that are genuinely loaded into sessions,
+	// not every SKILL.md that happens to exist in a cloned plugin repository.
+	for (const skillsDir of userAgentPluginSkillDirs()) {
+		entries.push(...collectSkillsFromDirectory(home, skillsDir, seenPaths));
 	}
 
 	// chat.agentSkillsLocations from VS Code stable/insiders settings + extension-provided paths.
