@@ -318,7 +318,7 @@ export function extractDescriptionFromSkillContent(content: string): string | un
 function extractFrontmatter(content: string): string | undefined {
 	// Allow an optional BOM and optional leading whitespace before the first fence
 	const stripped = content.replace(/^\uFEFF/, '').trimStart();
-	if (!stripped.startsWith('---')) { return undefined; }
+	if (!/^---(?:\r?\n|$)/.test(stripped)) { return undefined; }
 	const afterOpen = stripped.slice(3);
 	// The closing fence must be `---` on its own line; allow EOF without trailing newline
 	const closeIdx = afterOpen.search(/\n---(?:\r?\n|$)/m);
@@ -330,7 +330,7 @@ function extractFrontmatter(content: string): string | undefined {
  * Extract the `description` value from a raw YAML frontmatter string.
  * Handles inline, folded (>/->) and literal (|/|-/|>) block styles.
  */
-/** Collect indented body lines following a block scalar indicator, stripped of their common indentation. */
+/** Collect indented body lines following a block scalar indicator, with all lines trimmed to remove leading/trailing whitespace. */
 function collectBlockScalarLines(lines: string[], startIdx: number, keyIndent: number): string[] {
 	const bodyLines: string[] = [];
 	for (let j = startIdx; j < lines.length; j++) {
@@ -467,7 +467,11 @@ function resolveSkillPath(rawPath: string, home: string): string {
 	if (!resolved) { return ''; }
 
 	if (resolved.startsWith('~')) {
-		resolved = path.join(home, resolved.slice(1));
+		if (resolved === '~') {
+			resolved = home;
+		} else if (resolved.startsWith('~/') || resolved.startsWith('~\\')) {
+			resolved = path.join(home, resolved.slice(2));
+		}
 	}
 
 	resolved = resolved.replace(/\$\{env:([^}]+)\}/gi, (_m, varName: string) => process.env[varName] ?? '');

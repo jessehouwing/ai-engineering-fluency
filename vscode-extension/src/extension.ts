@@ -1085,7 +1085,8 @@ class CopilotTokenTracker implements vscode.Disposable {
 			vscode.window.showInformationMessage('Insights dismissal state has been reset.');
 		} catch (error) {
 			this.error('Error resetting insights state:', error);
-			vscode.window.showErrorMessage('Failed to reset insights state: ' + error);
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			vscode.window.showErrorMessage(`Failed to reset insights state: ${errorMsg}`);
 		}
 	}
 
@@ -5706,9 +5707,14 @@ class CopilotTokenTracker implements vscode.Disposable {
 					break;
 			case 'traceUsageCuration': {
 				const stage = typeof message.stage === 'string' ? message.stage : 'unknown';
-				const details = message.details && typeof message.details === 'object'
-					? JSON.stringify(message.details)
-					: '{}';
+				let details = '{}';
+				if (message.details && typeof message.details === 'object') {
+					try {
+						details = JSON.stringify(message.details);
+					} catch {
+						details = '[circular or non-serializable]';
+					}
+				}
 				this.log(`🧭 [Tool Curation Trace] ${stage} ${details}`);
 				break;
 			}
