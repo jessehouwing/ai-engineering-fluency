@@ -732,7 +732,9 @@ test('discoverSkillEntries: includes skills from chat.agentSkillsLocations in st
 		const home = process.env.USERPROFILE ?? process.env.HOME ?? '';
 		const appData = mkTmpDir('ctt-appdata-');
 		const originalAppData = process.env.APPDATA;
-		process.env.APPDATA = appData;
+		if (process.platform === 'win32') {
+			process.env.APPDATA = appData;
+		}
 
 		try {
 			const stableCustomSkills = path.join(home, 'custom-stable-skills');
@@ -740,8 +742,16 @@ test('discoverSkillEntries: includes skills from chat.agentSkillsLocations in st
 			writeSkill(stableCustomSkills, 'stable-setting-skill', 'Configured in stable settings');
 			writeSkill(insidersCustomSkills, 'insiders-setting-skill', 'Configured in insiders settings');
 
-			const stableSettingsPath = path.join(appData, 'Code', 'User', 'settings.json');
-			const insidersSettingsPath = path.join(appData, 'Code - Insiders', 'User', 'settings.json');
+			const stableSettingsPath = process.platform === 'win32'
+				? path.join(appData, 'Code', 'User', 'settings.json')
+				: process.platform === 'darwin'
+					? path.join(home, 'Library', 'Application Support', 'Code', 'User', 'settings.json')
+					: path.join(home, '.config', 'Code', 'User', 'settings.json');
+			const insidersSettingsPath = process.platform === 'win32'
+				? path.join(appData, 'Code - Insiders', 'User', 'settings.json')
+				: process.platform === 'darwin'
+					? path.join(home, 'Library', 'Application Support', 'Code - Insiders', 'User', 'settings.json')
+					: path.join(home, '.config', 'Code - Insiders', 'User', 'settings.json');
 			fs.mkdirSync(path.dirname(stableSettingsPath), { recursive: true });
 			fs.mkdirSync(path.dirname(insidersSettingsPath), { recursive: true });
 			fs.writeFileSync(stableSettingsPath, JSON.stringify({ 'chat.agentSkillsLocations': [stableCustomSkills] }), 'utf8');
