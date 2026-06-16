@@ -3212,12 +3212,17 @@ class CopilotTokenTracker implements vscode.Disposable {
 				this.postUsageLoadingProgress('curation:done', 'No tools discovered for curation.', { availableTools: 0 });
 				return null;
 			}
-			this.postUsageLoadingProgress('curation:done', 'Tool curation discovery completed.', {
+			this.postUsageLoadingProgress('curation:analyzing', 'Analysing tool usage patterns…', {
 				availableTools: availableTools.length,
 				skills: skillEntries.length,
 			});
 
-			return _analyzeToolCuration(availableTools, last30Days, windowDays);
+			const result = _analyzeToolCuration(availableTools, last30Days, windowDays);
+			this.postUsageLoadingProgress('curation:done', 'Tool curation analysis completed.', {
+				availableTools: availableTools.length,
+				unusedTools: result.unusedTools.length,
+			});
+			return result;
 		} catch (err) {
 			this.postUsageLoadingProgress('curation:error', 'Tool curation discovery failed; continuing without curation data.', {
 				error: String(err),
@@ -6309,14 +6314,14 @@ Return ONLY the JSON object, no markdown formatting, no explanations.`;
 	}
 
 	private async refreshAnalysisPanel(): Promise<void> {
-		if (!this.analysisPanel) {
-			return;
-		}
+		if (!this.analysisPanel) { return; }
 
 		this.log('🔄 Refreshing Usage Analysis dashboard');
-		// Force fresh usage analysis stats and re-render the webview
-		const analysisStats = await this.calculateUsageAnalysisStats(false);
-		this.analysisPanel.webview.html = this.getUsageAnalysisHtml(this.analysisPanel.webview, analysisStats);
+		// Tell the webview to switch to the loading UI immediately, then discard
+		// the cached stats so loadAnalysisStatsInBackground performs a full recalculation.
+		void this.analysisPanel.webview.postMessage({ command: 'usageRefreshing' });
+		this.lastUsageAnalysisStats = undefined;
+		await this.loadAnalysisStatsInBackground(this.analysisPanel);
 		// Refresh token stats so the status bar and tooltip stay in sync
 		await this.updateTokenStats();
 		this.log('✅ Usage Analysis dashboard refreshed');
