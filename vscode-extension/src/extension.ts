@@ -3165,17 +3165,17 @@ class CopilotTokenTracker implements vscode.Disposable {
 		try {
 			const windowDays = vscode.workspace.getConfiguration('aiEngineeringFluency').get<number>('curation.timeWindowDays', 30);
 			const workspaceFolderPaths = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) ?? [];
-			this.postUsageLoadingProgress('curation:start', 'Collecting tools and skills for curation...', {
+			this.postUsageLoadingProgress('curation:start', {
 				workspaces: workspaceFolderPaths.length,
 			});
 
 			// Collect available tools: VS Code runtime tools + mcp.json + extension-contributed + settings + skills.
 			const runtimeEntries = _enumerateRuntimeTools(vscode.lm.tools);
-			this.postUsageLoadingProgress('curation:runtimeTools', 'Collected runtime tools.', {
+			this.postUsageLoadingProgress('curation:runtimeTools', {
 				count: runtimeEntries.length,
 			});
 			const mcpEntries = _buildMcpEntriesFromJson(workspaceFolderPaths);
-			this.postUsageLoadingProgress('curation:mcpJson', 'Collected MCP config entries.', {
+			this.postUsageLoadingProgress('curation:mcpJson', {
 				count: mcpEntries.length,
 			});
 			// Build the set of MCP servers that currently have at least one tool enabled in
@@ -3189,7 +3189,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 			const extensionMcpEntries = _enumerateExtensionMcpServers(vscode.extensions.all, enabledMcpServers);
 			const settingsMcpServers = vscode.workspace.getConfiguration('mcp').get<Record<string, unknown>>('servers', {});
 			const settingsMcpEntries = _buildMcpEntriesFromSettings(settingsMcpServers);
-			this.postUsageLoadingProgress('curation:mcpSources', 'Collected extension/settings MCP entries.', {
+			this.postUsageLoadingProgress('curation:mcpSources', {
 				extensionEntries: extensionMcpEntries.length,
 				settingsEntries: settingsMcpEntries.length,
 			});
@@ -3197,11 +3197,11 @@ class CopilotTokenTracker implements vscode.Disposable {
 			const configuredSkillDirs = Array.isArray(configuredSkillDirsRaw)
 				? configuredSkillDirsRaw.filter((dir): dir is string => typeof dir === 'string')
 				: [];
-			this.postUsageLoadingProgress('curation:skillsScanStart', 'Scanning skill directories...', {
+			this.postUsageLoadingProgress('curation:skillsScanStart', {
 				configuredLocations: configuredSkillDirs.length,
 			});
 			const skillEntries = _discoverSkillEntries(workspaceFolderPaths, { additionalSkillDirs: configuredSkillDirs });
-			this.postUsageLoadingProgress('curation:skillsScanDone', 'Skill discovery completed.', {
+			this.postUsageLoadingProgress('curation:skillsScanDone', {
 				skills: skillEntries.length,
 			});
 
@@ -3218,22 +3218,22 @@ class CopilotTokenTracker implements vscode.Disposable {
 
 			const availableTools = [...runtimeEntries, ...uniqueMcpEntries, ...uniqueExtensionMcpEntries, ...uniqueSettingsMcpEntries, ...skillEntries];
 			if (availableTools.length === 0) {
-				this.postUsageLoadingProgress('curation:done', 'No tools discovered for curation.', { availableTools: 0 });
+				this.postUsageLoadingProgress('curation:done', { availableTools: 0 });
 				return null;
 			}
-			this.postUsageLoadingProgress('curation:analyzing', 'Analyzing tool usage patterns…', {
+			this.postUsageLoadingProgress('curation:analyzing', {
 				availableTools: availableTools.length,
 				skills: skillEntries.length,
 			});
 
 			const result = _analyzeToolCuration(availableTools, last30Days, windowDays);
-			this.postUsageLoadingProgress('curation:done', 'Tool curation analysis completed.', {
+			this.postUsageLoadingProgress('curation:done', {
 				availableTools: availableTools.length,
 				unusedTools: result.unusedTools.length,
 			});
 			return result;
 		} catch (err) {
-			this.postUsageLoadingProgress('curation:error', 'Tool curation discovery failed; continuing without curation data.', {
+			this.postUsageLoadingProgress('curation:error', {
 				error: String(err),
 			});
 			this.log(`⚠️ Tool curation analysis failed: ${String(err)}`);
@@ -5759,10 +5759,10 @@ class CopilotTokenTracker implements vscode.Disposable {
 
 	private async loadAnalysisStatsInBackground(panel: vscode.WebviewPanel): Promise<void> {
 		try {
-			this.postUsageLoadingProgress('start', 'Starting usage analysis...');
+			this.postUsageLoadingProgress('start');
 			const analysisStats = await this.calculateUsageAnalysisStats(true);
 			if (!this.analysisPanel || this.analysisPanel !== panel) { return; }
-			this.postUsageLoadingProgress('ready', 'Usage analysis ready.', {
+			this.postUsageLoadingProgress('ready', {
 				availableTools: analysisStats.curationAnalysis?.availableTools.length ?? 0,
 				unusedTools: analysisStats.curationAnalysis?.unusedTools.length ?? 0,
 			});
@@ -5781,7 +5781,7 @@ class CopilotTokenTracker implements vscode.Disposable {
 			});
 		} catch (err) {
 			this.error(`Failed to load usage analysis stats: ${err}`);
-			this.postUsageLoadingProgress('error', 'Failed to calculate usage analysis.', {
+			this.postUsageLoadingProgress('error', {
 				error: String(err),
 			});
 			if (this.analysisPanel && this.analysisPanel === panel) {
@@ -5790,12 +5790,11 @@ class CopilotTokenTracker implements vscode.Disposable {
 		}
 	}
 
-	private postUsageLoadingProgress(stage: string, message: string, details?: Record<string, unknown>): void {
+	private postUsageLoadingProgress(stage: string, details?: Record<string, unknown>): void {
 		if (!this.analysisPanel) { return; }
 		void this.analysisPanel.webview.postMessage({
 			command: 'usageLoadingProgress',
 			stage,
-			message,
 			details: details ?? {},
 		});
 	}

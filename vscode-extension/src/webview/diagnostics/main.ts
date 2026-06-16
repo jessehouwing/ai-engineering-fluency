@@ -1505,6 +1505,9 @@ function handleGlobalClickEvent(event: MouseEvent): void {
   if (target.id === "btn-clear-cache" || target.id === "btn-clear-cache-tab") {
     handleClearCacheClick(target);
   }
+  if (target.id === "btn-reset-insights" || target.id === "btn-reset-insights-tab") {
+    vscode.postMessage({ command: "resetInsightsState" });
+  }
   if (target.id === "btn-reset-debug-counters") {
     vscode.postMessage({ command: "resetDebugCounters" });
   }
@@ -1596,14 +1599,6 @@ function setupButtonHandlers(): void {
       updateCacheNumbers();
       vscode.postMessage({ command: "clearCache" });
     });
-
-  document.getElementById("btn-reset-insights")?.addEventListener("click", () => {
-    vscode.postMessage({ command: "resetInsightsState" });
-  });
-
-  document.getElementById("btn-reset-insights-tab")?.addEventListener("click", () => {
-    vscode.postMessage({ command: "resetInsightsState" });
-  });
 
   document.addEventListener("click", handleGlobalClickEvent);
 

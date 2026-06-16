@@ -745,7 +745,7 @@ export interface ToolCurationAnalysis {
   unusedTools: AvailableToolEntry[];
   /** MCP servers with partial or zero tool usage. */
   underusedMcpServers: { server: string; availableToolCount: number; usedToolCount: number; configFiles?: string[]; extensionId?: string; enabled?: boolean; extensionActive?: boolean }[];
-  /** Agent plugins where zero skills were used in the window. */
+  /** Agent plugins with skill usage counts for the window; sorted by usedSkillCount ascending. Includes all plugins (not just unused ones) so the UI can offer a "hide plugins with usage" toggle. */
   underusedAgentPlugins: { pluginName: string; availableSkillCount: number; usedSkillCount: number }[];
   /** Rough prompt-bloat estimate from unused tool descriptions. */
   estimatedPromptBloat: { totalTokens: number; byServer: Record<string, number> };

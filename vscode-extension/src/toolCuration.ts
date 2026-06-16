@@ -278,7 +278,7 @@ export function buildMcpEntriesFromJson(workspaceFolderPaths: string[]): Availab
  * Falls back to the first Markdown heading (`# Title`) when the frontmatter has no
  * `description` key, and to `fallback` when neither can be found.
  */
-export function readSkillDescription(skillMdPath: string, fallback: string): string {
+function readSkillDescription(skillMdPath: string, fallback: string): string {
 	try {
 		const content = fs.readFileSync(skillMdPath, 'utf-8');
 		const desc = extractDescriptionFromSkillContent(content);

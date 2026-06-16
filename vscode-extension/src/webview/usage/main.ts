@@ -1173,7 +1173,7 @@ function sanitizeStats(raw: any): UsageAnalysisStats | null {
 			traceCuration('sanitizeStats.curation.present', {
 				availableTools: sanitized.curationAnalysis.availableTools.length,
 				unusedTools: sanitized.curationAnalysis.unusedTools.length,
-				unusedServers: sanitized.curationAnalysis.underusedMcpServers.filter(s => s.usedToolCount === 0).length,
+				unusedServers: sanitized.curationAnalysis.underusedMcpServers.filter(s => s && s.usedToolCount === 0).length,
 			});
 		} else {
 			traceCurationOnce('sanitize-no-curation', 'sanitizeStats.curation.missing');
